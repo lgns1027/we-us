@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 
-const SERVER_URL = 'http://localhost:3001';
+const SERVER_URL = 'https://we-us-backend.onrender.com';
 
 export default function WeUsApp() {
   const [step, setStep] = useState<'lobby' | 'waiting' | 'chat'>('lobby');
