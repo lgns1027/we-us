@@ -11,7 +11,6 @@ const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] } 
 });
 
-// ★ 구글 공식 SDK 연결
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const waitingQueues = {}; 
@@ -19,30 +18,30 @@ const matchTimers = {};
 const roomVotes = {};     
 const activeRooms = {};   
 
-// ★ 구글 본섭 직결: Gemma 릴레이 + 최후의 보루(Gemini)
-// server.js 내 수정 부분
 async function getGoogleAIResponse(systemPrompt, history) {
+  // 한도 0으로 막힌 gemini는 제거하고 gemma 라인업만 유지
   const modelsToTry = [
-    "gemma-3-27b-it", // 1순위: 가장 똑똑한 27B
-    "gemma-3-12b-it", // 2순위: 균형 잡힌 12B
-    "gemma-3-4b-it",  // 3순위: 가벼운 4B
-    "gemini-2.0-flash" // 최후의 보루: 젬마 시리즈가 다 뻗을 때를 대비한 구글 메인 모델
+    "gemma-3-27b-it",
+    "gemma-3-12b-it",
+    "gemma-3-4b-it"
   ];
 
-  // ... 이하 동일
-
-  // 대화 기록을 구글 SDK가 이해하는 형식으로 변환
-  const contents = history.map(msg => ({
-    role: msg.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: msg.content }]
-  }));
+  // ★ 400 에러 해결: 시스템 프롬프트를 전용 칸이 아닌 유저의 첫 메시지에 강제로 병합
+  const contents = history.map((msg, index) => {
+    let text = msg.content;
+    if (index === 0 && msg.role !== 'assistant') {
+      text = `[시스템 지시사항: ${systemPrompt}]\n\n사용자 메시지: ` + text;
+    }
+    return {
+      role: msg.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: text }]
+    };
+  });
 
   for (const modelName of modelsToTry) {
     try {
-      const model = genAI.getGenerativeModel({ 
-        model: modelName,
-        systemInstruction: systemPrompt 
-      });
+      // systemInstruction 파라미터 완전 제거
+      const model = genAI.getGenerativeModel({ model: modelName });
       
       const result = await model.generateContent({ contents });
       const responseText = result.response.text();
@@ -51,10 +50,10 @@ async function getGoogleAIResponse(systemPrompt, history) {
         return responseText.trim();
       }
     } catch (error) {
-      console.log(`[${modelName}] 실패 (다음 모델 시도) - 사유: ${error.message}`);
+      console.log(`[${modelName}] 실패 - 사유: ${error.message}`);
     }
   }
-  return "AI 서버에 일시적인 트래픽이 몰렸습니다. 다른 말을 걸어주시겠어요?";
+  return "AI 연결에 실패했습니다. 다른 말을 걸어주시겠어요?";
 }
 
 function startGroupRoom(queueKey) {
@@ -139,7 +138,7 @@ io.on('connection', (socket) => {
     const systemPrompt = `익명 채팅방 진행자야. 10초간 정적이니 대화를 이을 질문 딱 1개만 던져. 50자 제한.`;
     const aiMessage = await getGoogleAIResponse(systemPrompt, chatHistory);
     
-    if (!aiMessage.includes("트래픽이 몰렸습니다")) {
+    if (!aiMessage.includes("실패했습니다")) {
       io.to(data.room).emit('receive_message', { sender: 'AI 🤖', text: aiMessage });
     }
   });
@@ -153,7 +152,7 @@ io.on('connection', (socket) => {
     const systemPrompt = `대화를 읽고 3줄 요약. 1. 그룹 티키타카 점수 2. 키워드(#해시태그 2개) 3. 한줄평`;
     const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: roomData.history.join('\n') }]);
     
-    if (reportContent.includes("트래픽이 몰렸습니다")) {
+    if (reportContent.includes("실패했습니다")) {
       io.to(data.room).emit('receive_report', { error: true });
     } else {
       io.to(data.room).emit('receive_report', { reportText: reportContent });
