@@ -18,13 +18,8 @@ const matchTimers = {};
 const roomVotes = {};     
 const activeRooms = {};   
 
-// ★ 속도 최적화를 위해 maxTokens 매개변수 추가
 async function getGoogleAIResponse(systemPrompt, history, maxTokens = 150) {
-  const modelsToTry = [
-    "gemma-3-12b-it", // ★ 27B보다 응답 속도가 3배 빠른 12B를 1순위로 배치
-    "gemma-3-27b-it",
-    "gemma-3-4b-it"
-  ];
+  const modelsToTry = ["gemma-3-12b-it", "gemma-3-27b-it", "gemma-3-4b-it"];
 
   const contents = history.map((msg, index) => {
     let text = msg.content;
@@ -39,7 +34,6 @@ async function getGoogleAIResponse(systemPrompt, history, maxTokens = 150) {
 
   for (const modelName of modelsToTry) {
     try {
-      // ★ maxOutputTokens를 걸어 AI가 말을 길게 끌지 못하게 강제 차단 (속도 대폭 상승)
       const model = genAI.getGenerativeModel({ 
         model: modelName,
         generationConfig: { maxOutputTokens: maxTokens } 
@@ -47,9 +41,7 @@ async function getGoogleAIResponse(systemPrompt, history, maxTokens = 150) {
       const result = await model.generateContent({ contents });
       const responseText = result.response.text();
       
-      if (responseText && responseText.trim()) {
-        return responseText.trim();
-      }
+      if (responseText && responseText.trim()) return responseText.trim();
     } catch (error) {
       console.log(`[${modelName}] 실패 - 사유: ${error.message}`);
     }
@@ -66,7 +58,6 @@ function startGroupRoom(queueKey) {
   }
 
   const roomName = `room_${Date.now()}`;
-  // ★ 방 정보에 isGeneratingReport(자물쇠) 추가
   activeRooms[roomName] = { type: 'multi', history: [], extensionCount: 0, participants: users.length, isGeneratingReport: false };
 
   const aliases = ['익명 A', '익명 B', '익명 C', '익명 D'];
@@ -96,7 +87,6 @@ io.on('connection', (socket) => {
       clearTimeout(matchTimers[queueKey]);
       startGroupRoom(queueKey);
     } else if (waitingQueues[queueKey].length === 2 && !matchTimers[queueKey]) {
-      // ★ 5초 대기를 3초(3000)로 단축
       matchTimers[queueKey] = setTimeout(() => startGroupRoom(queueKey), 3000);
     }
   });
@@ -148,17 +138,14 @@ io.on('connection', (socket) => {
 
   socket.on('request_chemistry_report', async (data) => {
     const roomData = activeRooms[data.room];
-    
-    // 1. 방이 없거나 대화가 너무 적으면 리포트 불가
     if (!roomData || roomData.history.length < 4) {
-      if(roomData && roomData.isGeneratingReport) return; // 이미 다른 기기에서 에러 띄웠으면 무시
+      if(roomData && roomData.isGeneratingReport) return; 
       io.to(data.room).emit('receive_report', { error: true });
       return;
     }
 
-    // ★ 2. 중복 방지 자물쇠 (PC와 모바일 1초 차이 튕김 완벽 해결)
     if (roomData.isGeneratingReport) return; 
-    roomData.isGeneratingReport = true; // 첫 요청이 들어오면 문을 잠가버림
+    roomData.isGeneratingReport = true; 
 
     let systemPrompt = "";
     let conversationText = "";
@@ -171,7 +158,6 @@ io.on('connection', (socket) => {
       conversationText = roomData.history.join('\n');
     }
 
-    // 리포트는 딱 200토큰만 쓰도록 제한하여 속도 확보
     const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 200);
     
     if (reportContent.includes("실패했습니다")) {
@@ -198,6 +184,29 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ★ 추가: 명시적인 방 나가기 로직
+  socket.on('leave_room', (data) => {
+    const room = data.room;
+    const roomData = activeRooms[room];
+    if (!roomData) return;
+
+    socket.leave(room);
+
+    if (roomData.type === 'multi') {
+      socket.to(room).emit('receive_message', { sender: 'System', text: `${socket.userAlias} 님이 스스로 방을 나갔습니다.` });
+      if (roomVotes[room]) roomVotes[room].delete(socket.id);
+      
+      roomData.participants -= 1;
+      if (roomData.participants < 2) {
+         socket.to(room).emit('partner_left');
+         delete activeRooms[room];
+         delete roomVotes[room];
+      }
+    } else {
+      delete activeRooms[room];
+    }
+  });
+
   socket.on('disconnecting', () => {
     for (const room of socket.rooms) {
       if (room !== socket.id) {
@@ -205,7 +214,7 @@ io.on('connection', (socket) => {
         if (!roomData) continue;
 
         if (roomData.type === 'multi') {
-          socket.to(room).emit('receive_message', { sender: 'System', text: `${socket.userAlias} 님이 퇴장하셨습니다.` });
+          socket.to(room).emit('receive_message', { sender: 'System', text: `${socket.userAlias} 님의 연결이 끊어졌습니다.` });
           if (roomVotes[room]) roomVotes[room].delete(socket.id);
           
           roomData.participants -= 1;
@@ -228,5 +237,5 @@ io.on('connection', (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => console.log(`🚀 WE US 구동 완료 (포트: ${PORT})`));
+const PORT = process.env.PORT || 10000;
+server.listen(PORT, '0.0.0.0', () => console.log(`🚀 WE US 구동 완료 (포트: ${PORT})`));

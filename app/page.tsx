@@ -26,7 +26,6 @@ export default function WeUsApp() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [reportData, setReportData] = useState<string | null>(null);
 
-  // ★ 수익화 관련 상태값 추가
   const [showAd, setShowAd] = useState(false);
   const [adCountdown, setAdCountdown] = useState(3);
 
@@ -46,14 +45,14 @@ export default function WeUsApp() {
       setRoom(matchRoom);
       setParticipantCount(data.participantCount || 2); 
       setStep('chat');
-      setTimeLeft(180); // 테스트 시 10으로 줄여서 확인하세요!
+      setTimeLeft(180); 
       setHasVoted(false);
       setPartnerVoted(false);
       setVoteStatus('');
       setExtensionCount(0); 
       setIsAnalyzing(false);
       setReportData(null);
-      setShowAd(false); // 매칭 시 광고 초기화
+      setShowAd(false); 
       
       const partnerName = data.partner || `총 ${data.participantCount}명`;
       setMessages([{ sender: 'System', text: `매칭 성공! [${selectedLang} - ${selectedTopic}] 모드로 ${partnerName}이 대화를 시작합니다.` }]);
@@ -97,7 +96,6 @@ export default function WeUsApp() {
     socketRef.current.on('receive_report', (data) => {
       setIsAnalyzing(false);
       if (data.error) {
-        // 에러 시 모달창에서 직접 보여주기 위해 예외처리
         setReportData("대화 내용이 너무 짧거나 시스템 오류로 리포트를 발급할 수 없습니다.");
       } else {
         setReportData(data.reportText);
@@ -107,7 +105,6 @@ export default function WeUsApp() {
     return () => { socketRef.current?.disconnect(); };
   }, [selectedLang, selectedTopic, isAnalyzing, reportData, showAd]);
 
-  // ★ 타이머 종료 시 광고 띄우기 로직
   useEffect(() => {
     if (step !== 'chat' || timeLeft <= 0 || isAnalyzing || reportData || showAd) return;
     const timer = setInterval(() => {
@@ -115,9 +112,9 @@ export default function WeUsApp() {
         if (prev <= 1) {
           clearInterval(timer);
           setIsAnalyzing(true);
-          setShowAd(true);        // 1. 광고 창 띄우기
-          setAdCountdown(3);      // 2. 광고 3초 카운트다운 시작
-          socketRef.current?.emit('request_chemistry_report', { room }); // 3. 뒤에서 몰래 AI 리포트 요청
+          setShowAd(true);        
+          setAdCountdown(3);      
+          socketRef.current?.emit('request_chemistry_report', { room }); 
           return 0;
         }
         return prev - 1;
@@ -126,7 +123,6 @@ export default function WeUsApp() {
     return () => clearInterval(timer);
   }, [step, timeLeft, room, isAnalyzing, reportData, showAd]);
 
-  // ★ 광고 3초 카운트다운 타이머
   useEffect(() => {
     if (!showAd || adCountdown <= 0) return;
     const adTimer = setInterval(() => {
@@ -160,6 +156,30 @@ export default function WeUsApp() {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
     const s = (seconds % 60).toString().padStart(2, '0');
     return `${m}:${s}`;
+  };
+
+  // ★ 추가: 방 나가기 로직
+  const leaveRoom = () => {
+    if (confirm("정말 대화방에서 나가시겠습니까?")) {
+      socketRef.current?.emit('leave_room', { room });
+      setStep('lobby');
+    }
+  };
+
+  // ★ 추가: 모바일 네이티브 공유 로직 (Web Share API)
+  const handleShare = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'WE US - AI가 분석한 내 대화',
+          text: `[WE US 성적표]\n\n${reportData}\n\n👉 익명으로 대화해보기: https://we-us.online`,
+        });
+      } catch (error) {
+        console.log('공유가 취소되었습니다.');
+      }
+    } else {
+      alert('지원하지 않는 기기입니다. 리포트 화면을 캡처해서 공유해보세요!');
+    }
   };
 
   return (
@@ -230,17 +250,18 @@ export default function WeUsApp() {
           <p className="text-sm text-blue-400 bg-blue-900/30 py-1 px-3 rounded-full inline-block border border-blue-800">
             {selectedLang} / {selectedTopic}
           </p>
+          {/* ★ 대기열 취소 버튼 */}
+          <button onClick={() => setStep('lobby')} className="mt-8 text-sm text-gray-400 hover:text-white underline">
+            대기 취소하기
+          </button>
         </div>
       ) : (
         <div className="w-full max-w-md h-[80vh] bg-gray-800 rounded-xl flex flex-col shadow-2xl overflow-hidden border border-gray-700 relative">
           
-          {/* ★ 수익화 전면 광고 모달 (가장 최상단 z-60) */}
           {showAd && (
             <div className="absolute inset-0 bg-black/95 flex flex-col items-center justify-center z-[60] p-4 backdrop-blur-md">
               <div className="w-full max-w-sm bg-gray-900 rounded-2xl overflow-hidden border border-gray-700 shadow-2xl flex flex-col animate-fade-in-up">
                 <div className="p-2 bg-gray-950 text-[10px] text-gray-500 text-right">Sponsored Advertisement</div>
-                
-                {/* 광고 배너 이미지 구역 */}
                 <div className="h-56 bg-gradient-to-br from-pink-500 via-red-500 to-yellow-500 flex flex-col items-center justify-center p-6 text-center relative overflow-hidden">
                   <div className="absolute inset-0 bg-black/20"></div>
                   <h3 className="text-2xl font-black text-white mb-2 z-10 drop-shadow-md">광고 없는 무제한 대화!</h3>
@@ -249,8 +270,6 @@ export default function WeUsApp() {
                     지금 확인하기
                   </button>
                 </div>
-
-                {/* 하단 컨트롤러 구역 */}
                 <div className="p-4 flex justify-between items-center bg-gray-900 border-t border-gray-800">
                   <span className="text-xs text-gray-400 font-bold">
                     {adCountdown > 0 ? `AI 분석 중...` : '리포트가 준비되었습니다!'}
@@ -269,7 +288,6 @@ export default function WeUsApp() {
             </div>
           )}
 
-          {/* AI 분석 로딩 창 (광고를 빨리 껐는데도 AI가 늦을 때 대비) */}
           {isAnalyzing && !showAd && !reportData && (
             <div className="absolute inset-0 bg-gray-900/90 flex flex-col items-center justify-center z-40 backdrop-blur-sm">
               <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-purple-500 mb-4"></div>
@@ -279,7 +297,6 @@ export default function WeUsApp() {
             </div>
           )}
 
-          {/* AI 성적표 결과 창 */}
           {reportData && !showAd && (
             <div className="absolute inset-0 bg-gray-900/95 flex flex-col items-center justify-center z-50 p-6 backdrop-blur-md">
               <div className="bg-gray-800 border-2 border-purple-500 rounded-2xl p-6 w-full max-w-sm shadow-[0_0_30px_rgba(168,85,247,0.3)] flex flex-col animate-fade-in-up">
@@ -289,25 +306,44 @@ export default function WeUsApp() {
                 <div className="space-y-4 text-sm text-gray-200 whitespace-pre-line leading-relaxed flex-1">
                   {reportData}
                 </div>
-                <button
-                  onClick={() => {
-                    setReportData(null);
-                    setStep('lobby');
-                  }}
-                  className="mt-8 w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-lg transition shadow-lg shadow-purple-600/30"
-                >
-                  로비로 돌아가기
-                </button>
+                
+                {/* ★ 공유하기 및 닫기 버튼 */}
+                <div className="mt-8 flex gap-2">
+                  <button
+                    onClick={handleShare}
+                    className="flex-1 bg-gradient-to-r from-pink-500 to-orange-400 hover:from-pink-600 hover:to-orange-500 text-white font-bold py-3 rounded-lg transition shadow-lg flex items-center justify-center gap-2"
+                  >
+                    🚀 친구에게 자랑하기
+                  </button>
+                  <button
+                    onClick={() => {
+                      setReportData(null);
+                      setStep('lobby');
+                    }}
+                    className="w-1/3 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg transition border border-gray-600"
+                  >
+                    로비로
+                  </button>
+                </div>
               </div>
             </div>
           )}
 
           <div className="bg-gray-950 p-4 flex justify-between items-center border-b border-gray-700">
             <div className="flex flex-col">
-              <span className="font-bold text-sm truncate pr-2">
-                {isSingleMode ? `싱글 모드: ${selectedLang}` : `주제: ${selectedTopic}`}
-              </span>
-              {!isSingleMode && <span className="text-xs text-gray-400">현재 인원: {participantCount}명</span>}
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-sm truncate">
+                  {isSingleMode ? `싱글 모드: ${selectedLang}` : `주제: ${selectedTopic}`}
+                </span>
+                {/* ★ 채팅방 나가기 버튼 */}
+                <button 
+                  onClick={leaveRoom}
+                  className="bg-red-900/50 hover:bg-red-600 text-red-400 hover:text-white border border-red-800 text-[10px] px-2 py-1 rounded transition-colors"
+                >
+                  나가기
+                </button>
+              </div>
+              {!isSingleMode && <span className="text-xs text-gray-400 mt-1">현재 인원: {participantCount}명</span>}
             </div>
             <span className={`font-mono text-xl shrink-0 ${timeLeft < 60 ? 'text-red-500 animate-pulse' : 'text-green-400'}`}>
               {formatTime(timeLeft)}
