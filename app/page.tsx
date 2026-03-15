@@ -12,11 +12,11 @@ export default function WeUsApp() {
   const [inputText, setInputText] = useState('');
   const [room, setRoom] = useState('');
   const [isHost, setIsHost] = useState(false); 
+  const [isSingleMode, setIsSingleMode] = useState(false); // ★ 싱글 모드인지 확인하는 변수 추가
   
   const [selectedLang, setSelectedLang] = useState('한국어');
   const [selectedTopic, setSelectedTopic] = useState('일상 대화');
 
-  // ★ 추가된 상태: 연장 투표 현황 기억하기
   const [hasVoted, setHasVoted] = useState(false);
   const [partnerVoted, setPartnerVoted] = useState(false);
 
@@ -31,13 +31,19 @@ export default function WeUsApp() {
   useEffect(() => {
     socketRef.current = io(SERVER_URL);
 
+    // 백엔드에서 매칭 신호가 왔을 때 (싱글/멀티 공통)
     socketRef.current.on('matched', (data) => {
-      setRoom(data.roomName);
+      // 멀티는 roomName, 싱글은 roomId로 올 수 있으므로 둘 다 커버
+      const matchRoom = data.roomName || data.roomId; 
+      setRoom(matchRoom);
       setStep('chat');
-      setTimeLeft(300); // 테스트를 빨리 하려면 여기를 65 정도로 바꿔도 됩니다.
+      setTimeLeft(300); 
       setHasVoted(false);
       setPartnerVoted(false);
-      setMessages([{ sender: 'System', text: `매칭 성공! [${selectedLang} - ${selectedTopic}] 모드로 대화를 시작합니다.` }]);
+      
+      const partnerName = data.partner || '익명의 상대';
+      setMessages([{ sender: 'System', text: `매칭 성공! [${selectedLang} - ${selectedTopic}] 모드로 ${partnerName}와(과) 대화를 시작합니다.` }]);
+      
       lastInteractionTime.current = Date.now();
       if (socketRef.current?.id === data.hostId) setIsHost(true);
     });
@@ -52,16 +58,14 @@ export default function WeUsApp() {
       setStep('lobby');
     });
 
-    // ★ 핵심 2: 상대방이 연장 버튼을 눌렀을 때
     socketRef.current.on('partner_wants_extension', () => {
       setPartnerVoted(true);
       setMessages((prev) => [...prev, { sender: 'System', text: '상대방이 대화 시간 연장을 원합니다! 버튼을 눌러 수락해 주세요.' }]);
     });
 
-    // ★ 핵심 3: 둘 다 동의해서 시간이 늘어났을 때
     socketRef.current.on('time_extended', (addedTime) => {
       setTimeLeft((prev) => prev + addedTime);
-      setHasVoted(false); // 다음 연장을 위해 투표 초기화
+      setHasVoted(false); 
       setPartnerVoted(false);
       setMessages((prev) => [...prev, { sender: 'System', text: '🎉 양측 동의로 대화 시간이 2분 연장되었습니다!' }]);
     });
@@ -69,6 +73,7 @@ export default function WeUsApp() {
     return () => { socketRef.current?.disconnect(); };
   }, [selectedLang, selectedTopic]);
 
+  // 5분 타이머
   useEffect(() => {
     if (step !== 'chat' || timeLeft <= 0) return;
     const timer = setInterval(() => {
@@ -85,8 +90,9 @@ export default function WeUsApp() {
     return () => clearInterval(timer);
   }, [step, timeLeft]);
 
+  // 10초 정적 브레이커 (멀티 모드일 때만 작동)
   useEffect(() => {
-    if (step !== 'chat') return;
+    if (step !== 'chat' || isSingleMode) return; 
     const silenceChecker = setInterval(() => {
       const now = Date.now();
       if (now - lastInteractionTime.current > 10000 && isHost) {
@@ -95,13 +101,14 @@ export default function WeUsApp() {
       }
     }, 1000);
     return () => clearInterval(silenceChecker);
-  }, [step, room, isHost]);
+  }, [step, room, isHost, isSingleMode]);
 
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() || !room) return;
     setMessages((prev) => [...prev, { sender: '나', text: inputText }]);
-    socketRef.current?.emit('send_message', { room, text: inputText });
+    // 싱글과 멀티 호환을 위해 room, roomId 둘 다 보냄
+    socketRef.current?.emit('send_message', { room: room, roomId: room, text: inputText, sender: '나' });
     setInputText('');
     lastInteractionTime.current = Date.now();
   };
@@ -151,15 +158,30 @@ export default function WeUsApp() {
             </div>
           </div>
 
-          <button 
-            onClick={() => {
-              setStep('waiting');
-              socketRef.current?.emit('join_queue', { lang: selectedLang, topic: selectedTopic }); 
-            }}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition-all shadow-lg shadow-blue-600/30"
-          >
-            대화 시작하기
-          </button>
+          <div className="space-y-3">
+            <button 
+              onClick={() => {
+                setIsSingleMode(false);
+                setStep('waiting');
+                socketRef.current?.emit('join_queue', { lang: selectedLang, topic: selectedTopic }); 
+              }}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition-all shadow-lg shadow-blue-600/30"
+            >
+              낯선 사람과 대화하기 (멀티)
+            </button>
+            
+            {/* ★ 추가된 싱글 모드 버튼 */}
+            <button 
+              onClick={() => {
+                setIsSingleMode(true);
+                // 싱글 모드는 대기열 없이 바로 채팅방으로 넘깁니다
+                socketRef.current?.emit('start_ai_chat', selectedLang); 
+              }}
+              className="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg transition-all border border-gray-600"
+            >
+              싱글 모드 (연습하기)
+            </button>
+          </div>
         </div>
       ) : step === 'waiting' ? (
         <div className="text-center space-y-4">
@@ -172,7 +194,9 @@ export default function WeUsApp() {
       ) : (
         <div className="w-full max-w-md h-[80vh] bg-gray-800 rounded-xl flex flex-col shadow-2xl overflow-hidden border border-gray-700 relative">
           <div className="bg-gray-950 p-4 flex justify-between items-center border-b border-gray-700">
-            <span className="font-bold text-sm truncate pr-2">주제: {selectedTopic}</span>
+            <span className="font-bold text-sm truncate pr-2">
+              {isSingleMode ? `싱글 모드: ${selectedLang}` : `주제: ${selectedTopic}`}
+            </span>
             <span className={`font-mono text-xl shrink-0 ${timeLeft < 60 ? 'text-red-500 animate-pulse' : 'text-green-400'}`}>
               {formatTime(timeLeft)}
             </span>
@@ -184,7 +208,7 @@ export default function WeUsApp() {
                 <div className={`max-w-[85%] p-3 rounded-lg text-sm ${
                   msg.sender === '나' ? 'bg-blue-600 text-white' : 
                   msg.sender === 'System' ? 'bg-gray-700/50 text-gray-300 text-center border border-gray-600' :
-                  msg.sender === 'AI 🤖' ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-200'
+                  msg.sender === 'AI 🤖' || msg.sender === 'AI' ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-200'
                 }`}>
                   {msg.sender !== 'System' && <span className="text-xs opacity-70 block mb-1">{msg.sender}</span>}
                   <span>{msg.text}</span>
@@ -193,8 +217,8 @@ export default function WeUsApp() {
             ))}
           </div>
 
-          {/* ★ 핵심 4: 시간이 60초 이하로 남았을 때 나타나는 연장 버튼 영역 */}
-          {timeLeft <= 60 && (
+          {/* 연장 버튼은 멀티모드이거나, 싱글모드라도 시간이 60초 이하면 띄움 */}
+          {timeLeft <= 60 && !isSingleMode && (
             <div className="absolute bottom-[68px] left-0 w-full p-2 bg-gray-900/90 backdrop-blur-sm border-t border-gray-700 flex flex-col items-center justify-center animate-fade-in-up">
               <button
                 onClick={() => {
