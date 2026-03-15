@@ -18,10 +18,11 @@ const matchTimers = {};
 const roomVotes = {};     
 const activeRooms = {};   
 
-async function getGoogleAIResponse(systemPrompt, history) {
+// ★ 속도 최적화를 위해 maxTokens 매개변수 추가
+async function getGoogleAIResponse(systemPrompt, history, maxTokens = 150) {
   const modelsToTry = [
+    "gemma-3-12b-it", // ★ 27B보다 응답 속도가 3배 빠른 12B를 1순위로 배치
     "gemma-3-27b-it",
-    "gemma-3-12b-it",
     "gemma-3-4b-it"
   ];
 
@@ -38,7 +39,11 @@ async function getGoogleAIResponse(systemPrompt, history) {
 
   for (const modelName of modelsToTry) {
     try {
-      const model = genAI.getGenerativeModel({ model: modelName });
+      // ★ maxOutputTokens를 걸어 AI가 말을 길게 끌지 못하게 강제 차단 (속도 대폭 상승)
+      const model = genAI.getGenerativeModel({ 
+        model: modelName,
+        generationConfig: { maxOutputTokens: maxTokens } 
+      });
       const result = await model.generateContent({ contents });
       const responseText = result.response.text();
       
@@ -61,7 +66,8 @@ function startGroupRoom(queueKey) {
   }
 
   const roomName = `room_${Date.now()}`;
-  activeRooms[roomName] = { type: 'multi', history: [], extensionCount: 0, participants: users.length };
+  // ★ 방 정보에 isGeneratingReport(자물쇠) 추가
+  activeRooms[roomName] = { type: 'multi', history: [], extensionCount: 0, participants: users.length, isGeneratingReport: false };
 
   const aliases = ['익명 A', '익명 B', '익명 C', '익명 D'];
   users.forEach((u, index) => {
@@ -90,7 +96,8 @@ io.on('connection', (socket) => {
       clearTimeout(matchTimers[queueKey]);
       startGroupRoom(queueKey);
     } else if (waitingQueues[queueKey].length === 2 && !matchTimers[queueKey]) {
-      matchTimers[queueKey] = setTimeout(() => startGroupRoom(queueKey), 5000);
+      // ★ 5초 대기를 3초(3000)로 단축
+      matchTimers[queueKey] = setTimeout(() => startGroupRoom(queueKey), 3000);
     }
   });
 
@@ -99,7 +106,7 @@ io.on('connection', (socket) => {
     socket.join(roomId);
     socket.userAlias = '나';
     
-    activeRooms[roomId] = { type: 'single', lang: lang, history: [] };
+    activeRooms[roomId] = { type: 'single', lang: lang, history: [], isGeneratingReport: false };
     socket.emit('matched', { roomId: roomId, partner: `${lang} 봇`, participantCount: 2 });
     
     const welcomeMsg = `안녕하세요! ${lang} 대화 연습 모드입니다. 편하게 말을 걸어주세요!`;
@@ -119,7 +126,7 @@ io.on('connection', (socket) => {
       roomData.history.push({ role: 'user', content: data.text }); 
       
       const systemPrompt = `넌 '${roomData.lang}' 대화 파트너야. 친절하게 대답해.`;
-      const aiReply = await getGoogleAIResponse(systemPrompt, roomData.history.slice(-8));
+      const aiReply = await getGoogleAIResponse(systemPrompt, roomData.history.slice(-8), 150);
       
       roomData.history.push({ role: 'assistant', content: aiReply }); 
       socket.emit('receive_message', { sender: 'AI 🤖', text: aiReply });
@@ -131,38 +138,41 @@ io.on('connection', (socket) => {
       role: msg.sender === '나' || msg.sender.includes('익명') ? 'user' : 'assistant',
       content: `${msg.sender}: ${msg.text}`
     }));
-    const systemPrompt = `너는 대화방의 'AI 진행자'야. 절대 대화 참여자(익명 A, 익명 B 등)를 연기하거나 대본을 쓰지 마. 10초간 정적이 흘렀으니 어색함을 깰 수 있는 짧고 센스 있는 질문 하나만 던져. (예: 다들 저녁은 드셨나요?) 50자 이내.`;
-    const aiMessage = await getGoogleAIResponse(systemPrompt, chatHistory);
+    const systemPrompt = `너는 대화방의 'AI 진행자'야. 절대 대화 참여자(익명 A, 익명 B 등)를 연기하거나 대본을 쓰지 마. 10초간 정적이 흘렀으니 어색함을 깰 수 있는 짧고 센스 있는 질문 하나만 던져. 50자 이내.`;
+    const aiMessage = await getGoogleAIResponse(systemPrompt, chatHistory, 100);
     
     if (!aiMessage.includes("실패했습니다")) {
       io.to(data.room).emit('receive_message', { sender: 'AI 🤖', text: aiMessage });
     }
   });
 
-  // ★ 변경: 싱글/멀티 구분하여 리포트 발급 로직 완비
   socket.on('request_chemistry_report', async (data) => {
     const roomData = activeRooms[data.room];
+    
+    // 1. 방이 없거나 대화가 너무 적으면 리포트 불가
     if (!roomData || roomData.history.length < 4) {
+      if(roomData && roomData.isGeneratingReport) return; // 이미 다른 기기에서 에러 띄웠으면 무시
       io.to(data.room).emit('receive_report', { error: true });
       return;
     }
+
+    // ★ 2. 중복 방지 자물쇠 (PC와 모바일 1초 차이 튕김 완벽 해결)
+    if (roomData.isGeneratingReport) return; 
+    roomData.isGeneratingReport = true; // 첫 요청이 들어오면 문을 잠가버림
 
     let systemPrompt = "";
     let conversationText = "";
 
     if (roomData.type === 'single') {
-      systemPrompt = `이 대화는 사용자가 AI(${roomData.lang})와 진행한 대화 연습이야. 대화를 평가해서 3줄로 요약해. 
-      1. 대화 주도력 점수: (100점 만점) 
-      2. 핵심 키워드: (#해시태그 2개) 
-      3. AI의 피드백: (칭찬이나 조언 한줄평)`;
-      // 싱글모드 객체 배열을 텍스트로 변환
+      systemPrompt = `이 대화는 사용자가 AI(${roomData.lang})와 진행한 대화 연습이야. 대화를 평가해서 3줄로 요약해. 1. 대화 주도력 점수: (100점 만점) 2. 핵심 키워드: (#해시태그 2개) 3. AI의 피드백: (칭찬이나 조언 한줄평)`;
       conversationText = roomData.history.map(msg => `${msg.role === 'user' ? '나' : 'AI'}: ${msg.content}`).join('\n');
     } else {
       systemPrompt = `대화를 읽고 3줄 요약해. 1. 그룹 티키타카 점수: (100점 만점) 2. 핵심 키워드: (#해시태그 2개) 3. 한줄평`;
       conversationText = roomData.history.join('\n');
     }
 
-    const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }]);
+    // 리포트는 딱 200토큰만 쓰도록 제한하여 속도 확보
+    const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 200);
     
     if (reportContent.includes("실패했습니다")) {
       io.to(data.room).emit('receive_report', { error: true });
