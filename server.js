@@ -84,6 +84,7 @@ io.on('connection', (socket) => {
   });
 });
 
-server.listen(3001, () => {
-  console.log('🚀 WE US 백엔드 구동 완료 (카테고리별 맞춤 매칭 적용!)');
+const PORT = process.env.PORT || 3001; 
+server.listen(PORT, () => {
+  console.log(`🚀 WE US 백엔드 구동 완료 (포트: ${PORT})`);
 });
