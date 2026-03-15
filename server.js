@@ -25,7 +25,7 @@ const roomVotes = {};
 const activeRooms = {};   
 
 // ★ 가장 안정적이고 응답이 긴 구글 Gemini 무료 모델
-const AI_MODEL = 'google/gemini-2.0-flash-lite-preview-02-05:free';
+const AI_MODEL = 'meta-llama/llama-3.3-70b-instruct:free';
 
 io.on('connection', (socket) => {
   console.log(`🟢 접속됨: ${socket.id}`);
