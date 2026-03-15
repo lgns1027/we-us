@@ -12,13 +12,17 @@ export default function WeUsApp() {
   const [inputText, setInputText] = useState('');
   const [room, setRoom] = useState('');
   const [isHost, setIsHost] = useState(false); 
-  const [isSingleMode, setIsSingleMode] = useState(false); // ★ 싱글 모드인지 확인하는 변수 추가
+  const [isSingleMode, setIsSingleMode] = useState(false); 
   
   const [selectedLang, setSelectedLang] = useState('한국어');
   const [selectedTopic, setSelectedTopic] = useState('일상 대화');
 
   const [hasVoted, setHasVoted] = useState(false);
   const [partnerVoted, setPartnerVoted] = useState(false);
+
+  // ★ 추가: AI 성적표를 위한 상태값
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [reportData, setReportData] = useState<string | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
   const lastInteractionTime = useRef<number>(Date.now());
@@ -31,15 +35,15 @@ export default function WeUsApp() {
   useEffect(() => {
     socketRef.current = io(SERVER_URL);
 
-    // 백엔드에서 매칭 신호가 왔을 때 (싱글/멀티 공통)
     socketRef.current.on('matched', (data) => {
-      // 멀티는 roomName, 싱글은 roomId로 올 수 있으므로 둘 다 커버
       const matchRoom = data.roomName || data.roomId; 
       setRoom(matchRoom);
       setStep('chat');
-      setTimeLeft(300); 
+      setTimeLeft(300); // 테스트할 때 10 정도로 줄여서 성적표 빨리 띄워보세요!
       setHasVoted(false);
       setPartnerVoted(false);
+      setIsAnalyzing(false);
+      setReportData(null);
       
       const partnerName = data.partner || '익명의 상대';
       setMessages([{ sender: 'System', text: `매칭 성공! [${selectedLang} - ${selectedTopic}] 모드로 ${partnerName}와(과) 대화를 시작합니다.` }]);
@@ -54,8 +58,11 @@ export default function WeUsApp() {
     });
 
     socketRef.current.on('partner_left', () => {
-      alert("상대방이 대화방을 떠났습니다. 수고하셨습니다.");
-      setStep('lobby');
+      // 상대방이 나갔을 때 분석 중이거나 성적표 보는 중이면 튕기지 않음
+      if (!isAnalyzing && !reportData) {
+        alert("상대방이 대화방을 떠났습니다.");
+        setStep('lobby');
+      }
     });
 
     socketRef.current.on('partner_wants_extension', () => {
@@ -70,27 +77,43 @@ export default function WeUsApp() {
       setMessages((prev) => [...prev, { sender: 'System', text: '🎉 양측 동의로 대화 시간이 2분 연장되었습니다!' }]);
     });
 
-    return () => { socketRef.current?.disconnect(); };
-  }, [selectedLang, selectedTopic]);
+    // ★ 추가: 백엔드에서 성적표가 도착했을 때
+    socketRef.current.on('receive_report', (data) => {
+      setIsAnalyzing(false);
+      if (data.error) {
+        alert("대화 내용이 너무 적어 AI 분석 리포트를 생성하지 못했습니다.");
+        setStep('lobby');
+      } else {
+        setReportData(data.reportText);
+      }
+    });
 
-  // 5분 타이머
+    return () => { socketRef.current?.disconnect(); };
+  }, [selectedLang, selectedTopic, isAnalyzing, reportData]);
+
+  // ★ 변경: 타이머 종료 시 쫓아내지 않고 리포트 요청 로직 추가
   useEffect(() => {
-    if (step !== 'chat' || timeLeft <= 0) return;
+    if (step !== 'chat' || timeLeft <= 0 || isAnalyzing || reportData) return;
     const timer = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
           clearInterval(timer);
-          setStep('lobby');
-          alert("5분의 대화가 종료되었습니다. 수고하셨습니다!");
+          if (isSingleMode) {
+            alert("AI와의 대화 연습이 종료되었습니다.");
+            setStep('lobby');
+          } else {
+            // 멀티모드 5분 끝! 성적표 뽑아오라고 서버에 지시
+            setIsAnalyzing(true);
+            socketRef.current?.emit('request_chemistry_report', { room });
+          }
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [step, timeLeft]);
+  }, [step, timeLeft, isSingleMode, room, isAnalyzing, reportData]);
 
-  // 10초 정적 브레이커 (멀티 모드일 때만 작동)
   useEffect(() => {
     if (step !== 'chat' || isSingleMode) return; 
     const silenceChecker = setInterval(() => {
@@ -107,7 +130,6 @@ export default function WeUsApp() {
     e.preventDefault();
     if (!inputText.trim() || !room) return;
     setMessages((prev) => [...prev, { sender: '나', text: inputText }]);
-    // 싱글과 멀티 호환을 위해 room, roomId 둘 다 보냄
     socketRef.current?.emit('send_message', { room: room, roomId: room, text: inputText, sender: '나' });
     setInputText('');
     lastInteractionTime.current = Date.now();
@@ -169,12 +191,9 @@ export default function WeUsApp() {
             >
               낯선 사람과 대화하기 (멀티)
             </button>
-            
-            {/* ★ 추가된 싱글 모드 버튼 */}
             <button 
               onClick={() => {
                 setIsSingleMode(true);
-                // 싱글 모드는 대기열 없이 바로 채팅방으로 넘깁니다
                 socketRef.current?.emit('start_ai_chat', selectedLang); 
               }}
               className="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg transition-all border border-gray-600"
@@ -193,6 +212,38 @@ export default function WeUsApp() {
         </div>
       ) : (
         <div className="w-full max-w-md h-[80vh] bg-gray-800 rounded-xl flex flex-col shadow-2xl overflow-hidden border border-gray-700 relative">
+          
+          {/* ★ 추가: AI 분석 중 로딩 오버레이 */}
+          {isAnalyzing && (
+            <div className="absolute inset-0 bg-gray-900/90 flex flex-col items-center justify-center z-40 backdrop-blur-sm">
+              <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-purple-500 mb-4"></div>
+              <p className="text-purple-400 font-bold animate-pulse">AI가 두 분의 케미를 분석 중입니다...</p>
+            </div>
+          )}
+
+          {/* ★ 추가: 성적표(리포트) 모달창 */}
+          {reportData && (
+            <div className="absolute inset-0 bg-gray-900/95 flex flex-col items-center justify-center z-50 p-6 backdrop-blur-md">
+              <div className="bg-gray-800 border-2 border-purple-500 rounded-2xl p-6 w-full max-w-sm shadow-[0_0_30px_rgba(168,85,247,0.3)] flex flex-col">
+                <h2 className="text-2xl font-extrabold text-center mb-6 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-blue-400">
+                  📊 WE US 케미 리포트
+                </h2>
+                <div className="space-y-4 text-sm text-gray-200 whitespace-pre-line leading-relaxed flex-1">
+                  {reportData}
+                </div>
+                <button
+                  onClick={() => {
+                    setReportData(null);
+                    setStep('lobby');
+                  }}
+                  className="mt-8 w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-lg transition shadow-lg shadow-purple-600/30"
+                >
+                  로비로 돌아가기
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="bg-gray-950 p-4 flex justify-between items-center border-b border-gray-700">
             <span className="font-bold text-sm truncate pr-2">
               {isSingleMode ? `싱글 모드: ${selectedLang}` : `주제: ${selectedTopic}`}
@@ -217,8 +268,7 @@ export default function WeUsApp() {
             ))}
           </div>
 
-          {/* 연장 버튼은 멀티모드이거나, 싱글모드라도 시간이 60초 이하면 띄움 */}
-          {timeLeft <= 60 && !isSingleMode && (
+          {timeLeft <= 60 && !isSingleMode && !isAnalyzing && !reportData && (
             <div className="absolute bottom-[68px] left-0 w-full p-2 bg-gray-900/90 backdrop-blur-sm border-t border-gray-700 flex flex-col items-center justify-center animate-fade-in-up">
               <button
                 onClick={() => {
@@ -240,15 +290,16 @@ export default function WeUsApp() {
             </div>
           )}
 
-          <form onSubmit={sendMessage} className="p-3 bg-gray-900 border-t border-gray-700 flex gap-2 z-10">
+          <form onSubmit={sendMessage} className="p-3 bg-gray-900 border-t border-gray-700 flex gap-2 z-10 relative">
             <input 
               type="text" 
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
+              disabled={isAnalyzing || !!reportData} // 성적표 볼 땐 타자 못 치게 막음
               placeholder="메시지를 입력하세요..." 
-              className="flex-1 bg-gray-800 text-white px-4 py-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+              className="flex-1 bg-gray-800 text-white px-4 py-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
             />
-            <button type="submit" className="bg-blue-600 px-4 py-2 rounded-lg font-bold hover:bg-blue-700 whitespace-nowrap">
+            <button type="submit" disabled={isAnalyzing || !!reportData} className="bg-blue-600 px-4 py-2 rounded-lg font-bold hover:bg-blue-700 whitespace-nowrap disabled:opacity-50">
               전송
             </button>
           </form>
