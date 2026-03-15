@@ -2,36 +2,39 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { OpenAI } = require('openai'); // 나중에 정식 오픈 때 쓸 API
+const { OpenAI } = require('openai');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { 
   cors: { 
-    origin: ["https://we-us-one.vercel.app", "http://localhost:3000"], 
+    // 가비아 도메인들도 VIP 명단에 추가했습니다.
+    origin: ["https://we-us-one.vercel.app", "https://we-us.online", "https://www.we-us.online", "http://localhost:3000"], 
     methods: ["GET", "POST"],
     credentials: true
   } 
 });
 
-// ★ 변경 1: 한 명만 기다리던 방식에서 -> 카테고리별 방으로 쪼갬
-// 예: { "한국어_일상 대화": socket, "영어_상황극": socket }
+// OpenRouter AI 세팅 (무료 Gemini 사용)
+const openai = new OpenAI({
+  baseURL: "https://openrouter.ai/api/v1",
+  apiKey: process.env.OPENROUTER_API_KEY,
+  defaultHeaders: { "HTTP-Referer": "https://we-us.online", "X-Title": "WE US" }
+});
+
 const waitingQueues = {}; 
 const roomVotes = {}; 
+const aiRooms = {}; // ★ 추가: 싱글 모드 방의 대화 기록과 언어 설정을 저장할 공간
 
 io.on('connection', (socket) => {
   console.log('🟢 접속:', socket.id);
 
-  // ★ 변경 2: 프론트에서 보낸 언어와 주제 데이터를 받아서 매칭
+  // 1. [멀티 모드] 대기열 입장 및 매칭
   socket.on('join_queue', (data) => {
-    // 아무것도 선택 안하고 왔을 경우의 기본값 방어 로직
     const lang = data?.lang || '한국어';
     const topic = data?.topic || '일상 대화';
-    const queueKey = `${lang}_${topic}`; // 예: "영어_영화/문화"
+    const queueKey = `${lang}_${topic}`; 
 
-    console.log(`🔎 유저 ${socket.id} 가 [${queueKey}] 대기열에 입장했습니다.`);
-
-    // 1. 내가 고른 카테고리에 이미 누군가 기다리고 있다면? 매칭!
     if (waitingQueues[queueKey] && waitingQueues[queueKey].id !== socket.id) {
       const partnerSocket = waitingQueues[queueKey];
       const roomName = `room_${Date.now()}`;
@@ -40,25 +43,93 @@ io.on('connection', (socket) => {
       partnerSocket.join(roomName);
 
       io.to(roomName).emit('matched', { roomName, hostId: socket.id });
-      console.log(`🤝 [${queueKey}] 매칭 성사! 방 이름: ${roomName}`);
-
-      delete waitingQueues[queueKey]; // 매칭됐으니 대기실에서 삭제
+      delete waitingQueues[queueKey]; 
     } else {
-      // 2. 대기자가 없으면 내가 이 카테고리의 첫 번째 대기자로 등록
       waitingQueues[queueKey] = socket;
-      socket.queueKey = queueKey; // 나중에 도망갔을 때 지우기 위해 소켓에 꼬리표 달기
+      socket.queueKey = queueKey; 
     }
   });
 
-  socket.on('send_message', (data) => {
-    socket.to(data.room).emit('receive_message', data);
+  // 2. [싱글 모드] AI 방 생성 및 첫인사
+  socket.on('start_ai_chat', (lang) => {
+    const roomId = `ai_${socket.id}_${Date.now()}`;
+    socket.join(roomId);
+    
+    // 이 방은 AI 방임을 기록하고, 대화 맥락을 저장할 배열을 만듦
+    aiRooms[roomId] = {
+      lang: lang,
+      history: [] 
+    };
+
+    socket.emit('matched', { roomId: roomId, partner: `${lang} 봇` });
+    
+    // AI의 첫인사
+    const welcomeMsg = `안녕하세요! ${lang} 대화 연습 모드입니다. 편하게 말을 걸어주세요!`;
+    socket.emit('receive_message', { sender: 'AI 🤖', text: welcomeMsg });
+    aiRooms[roomId].history.push({ role: 'assistant', content: welcomeMsg });
   });
 
-  socket.on('request_ai_help', (data) => {
-    const dummyAiMessage = "정적이 흐르네요. 다들 영화관 가면 팝콘 파인가요, 나초 파인가요?";
-    io.to(data.room).emit('receive_message', { sender: 'AI 🤖', text: dummyAiMessage });
+  // 3. 메시지 처리 (멀티 vs 싱글 분기)
+  socket.on('send_message', async (data) => {
+    // 3-1. 멀티 모드면 기존처럼 상대방에게 전달하고 끝
+    if (!aiRooms[data.room]) {
+      socket.to(data.room).emit('receive_message', data);
+      return;
+    }
+
+    // 3-2. ★ 싱글 모드면 유저의 말을 저장하고 AI를 호출!
+    const roomData = aiRooms[data.room];
+    roomData.history.push({ role: 'user', content: data.text }); 
+
+    try {
+      const response = await openai.chat.completions.create({
+        model: 'google/gemini-2.0-flash-lite-preview-02-05:free', // 가성비 최고의 무료 모델
+        messages: [
+          // 프롬프트: 선택한 언어에 맞춰서 대화해달라고 지시
+          { role: 'system', content: `너는 사용자의 '${roomData.lang}' 대화 연습을 돕는 친절한 파트너야. 반드시 '${roomData.lang}' 언어로만 자연스럽게 대답하고, 질문을 던져서 대화를 이어가. 한 번에 너무 길게 말하지 마.` },
+          ...roomData.history.slice(-8) // 대화 맥락 유지를 위해 최근 8개 대화만 기억력으로 던져줌
+        ],
+        max_tokens: 150
+      });
+
+      const aiReply = response.choices[0].message.content.trim();
+      roomData.history.push({ role: 'assistant', content: aiReply }); 
+      
+      // 답변을 유저 화면으로 쏴줌
+      socket.emit('receive_message', { sender: 'AI 🤖', text: aiReply });
+    } catch (error) {
+      console.error("AI API 에러:", error);
+      socket.emit('receive_message', { sender: 'System', text: 'AI 연결이 잠시 지연되고 있습니다. 다시 말씀해 주시겠어요?' });
+    }
   });
 
+  // 4. [멀티 모드 전용] 10초 정적 브레이커
+  socket.on('request_ai_help', async (data) => {
+    try {
+      const chatHistory = data.history.slice(-5).map(msg => ({
+        role: msg.sender === '나' || msg.sender === '상대방' ? 'user' : 'assistant',
+        content: `${msg.sender}: ${msg.text}`
+      }));
+
+      const response = await openai.chat.completions.create({
+        model: 'google/gemini-2.0-flash-lite-preview-02-05:free',
+        messages: [
+          { role: 'system', content: `너는 5분 익명 채팅방의 눈치빠른 진행자 AI야. 유저들이 10초간 말이 없어 어색한 상황이야. 이전 대화를 읽고, 흐름에 맞춰서 대화를 다시 이어갈 수 있는 가볍고 센스있는 질문을 한국어로 딱 1개만 던져. 절대 50자를 넘기지 마.` },
+          ...chatHistory
+        ],
+        max_tokens: 100
+      });
+
+      const aiMessage = response.choices[0].message.content.trim();
+      if (aiMessage && aiMessage.length > 0) {
+        io.to(data.room).emit('receive_message', { sender: 'AI 🤖', text: aiMessage });
+      }
+    } catch (error) {
+      console.error("정적 브레이커 에러:", error);
+    }
+  });
+
+  // 5. 2분 연장 투표 로직
   socket.on('vote_extend', (data) => {
     const room = data.room;
     if (!roomVotes[room]) roomVotes[room] = new Set();
@@ -72,25 +143,25 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 6. 이탈 방지 및 뒷정리
   socket.on('disconnecting', () => {
     for (const room of socket.rooms) {
       if (room !== socket.id) {
         socket.to(room).emit('partner_left');
         delete roomVotes[room];
+        delete aiRooms[room]; // 방 터지면 AI 기억력도 파기
       }
     }
   });
 
   socket.on('disconnect', () => {
-    console.log('🔴 유저 이탈:', socket.id);
-    // 대기 중에 도망갔다면 대기열에서 깔끔하게 삭제
     if (socket.queueKey && waitingQueues[socket.queueKey] === socket) {
       delete waitingQueues[socket.queueKey];
     }
   });
 });
 
-const PORT = process.env.PORT || 3001; 
+const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`🚀 WE US 백엔드 구동 완료 (포트: ${PORT})`);
 });
