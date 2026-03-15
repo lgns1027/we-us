@@ -7,7 +7,6 @@ const { OpenAI } = require('openai');
 const app = express();
 const server = http.createServer(app);
 
-// CORS 설정: 모든 접근 허용
 const io = new Server(server, { 
   cors: { 
     origin: "*", 
@@ -25,8 +24,8 @@ const waitingQueues = {};
 const roomVotes = {};     
 const activeRooms = {};   
 
-// ★ 가장 안정적인 OpenRouter 무료 모델로 교체
-const AI_MODEL = 'openrouter/free';
+// ★ 가장 안정적이고 응답이 긴 구글 Gemini 무료 모델
+const AI_MODEL = 'google/gemini-2.0-flash-lite-preview-02-05:free';
 
 io.on('connection', (socket) => {
   console.log(`🟢 접속됨: ${socket.id}`);
@@ -81,18 +80,21 @@ io.on('connection', (socket) => {
         const response = await openai.chat.completions.create({
           model: AI_MODEL,
           messages: [
-            { role: 'system', content: `넌 사용자의 '${roomData.lang}' 대화 연습 파트너야. '${roomData.lang}'로만 답해.` },
+            { role: 'system', content: `넌 사용자의 '${roomData.lang}' 대화 연습 파트너야. 반드시 '${roomData.lang}' 언어로만 친근하게 대답해.` },
             ...roomData.history.slice(-8) 
           ],
           max_tokens: 150
         });
-        const aiReply = response.choices[0].message.content.trim();
+        
+        // ★ 방어벽 1: AI 응답이 null일 경우 예외 처리
+        let aiReply = response.choices[0]?.message?.content;
+        aiReply = aiReply ? aiReply.trim() : "AI가 잠시 생각에 빠졌습니다. 다른 말을 걸어주시겠어요?";
+        
         roomData.history.push({ role: 'assistant', content: aiReply }); 
         socket.emit('receive_message', { sender: 'AI 🤖', text: aiReply });
       } catch (error) {
-        // ★ 에러 상세 로그 출력
-        console.error("🔥 [싱글모드] AI 응답 에러 상세:", error.message || error);
-        socket.emit('receive_message', { sender: 'System', text: 'AI 연결 상태가 불안정합니다. (Render 로그 확인 요망)' });
+        console.error("🔥 [싱글모드 에러]:", error.message || error);
+        socket.emit('receive_message', { sender: 'System', text: 'AI 연결 상태가 불안정합니다.' });
       }
     }
   });
@@ -108,18 +110,19 @@ io.on('connection', (socket) => {
       const response = await openai.chat.completions.create({
         model: AI_MODEL,
         messages: [
-          { role: 'system', content: `너는 익명 채팅방의 진행자야. 유저들이 10초간 말이 없어 어색한 상황이니 대화를 이어갈 수 있는 가볍고 센스있는 질문을 딱 1개만 던져. 절대 50자를 넘기지 마.` },
+          { role: 'system', content: `너는 익명 채팅방의 눈치빠른 진행자야. 10초간 말이 없어 어색한 상황이니 대화를 다시 이어갈 수 있는 가볍고 센스있는 질문을 한국어로 딱 1개만 던져. 50자 제한.` },
           ...chatHistory
         ],
         max_tokens: 100
       });
 
-      const aiMessage = response.choices[0].message.content.trim();
-      if (aiMessage) {
-        io.to(data.room).emit('receive_message', { sender: 'AI 🤖', text: aiMessage });
+      // ★ 방어벽 2: 정적 브레이커 예외 처리
+      const aiMessage = response.choices[0]?.message?.content;
+      if (aiMessage && aiMessage.trim()) {
+        io.to(data.room).emit('receive_message', { sender: 'AI 🤖', text: aiMessage.trim() });
       }
     } catch (error) {
-      console.error("🔥 [정적 브레이커] 에러 상세:", error.message || error);
+      console.error("🔥 [정적 브레이커 에러]:", error.message || error);
     }
   });
 
@@ -137,15 +140,25 @@ io.on('connection', (socket) => {
         messages: [
           { 
             role: 'system', 
-            content: `두 사람의 대화를 읽고 3줄로 요약해. 1. 티키타카 점수 2. 키워드(#해시태그) 3. AI 한줄평` 
+            content: `두 사람의 대화를 읽고 정확히 3줄로 요약해. 
+            1. 티키타카 점수: (100점 만점) 
+            2. 핵심 키워드: (#해시태그 2개) 
+            3. AI 한줄평: (대화 흐름 평가)` 
           },
           { role: 'user', content: roomData.history.join('\n') }
         ],
-        max_tokens: 200
+        max_tokens: 250 // 리포트가 잘리지 않도록 넉넉하게 확장
       });
-      io.to(data.room).emit('receive_report', { reportText: response.choices[0].message.content.trim() });
+      
+      // ★ 방어벽 3: 리포트 생성 예외 처리
+      const reportContent = response.choices[0]?.message?.content;
+      if (reportContent) {
+        io.to(data.room).emit('receive_report', { reportText: reportContent.trim() });
+      } else {
+        io.to(data.room).emit('receive_report', { error: true });
+      }
     } catch (error) {
-      console.error("🔥 [케미 리포트] 에러 상세:", error.message || error);
+      console.error("🔥 [케미 리포트 에러]:", error.message || error);
       io.to(data.room).emit('receive_report', { error: true });
     }
   });
