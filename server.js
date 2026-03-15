@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 const server = http.createServer(app);
@@ -10,47 +11,50 @@ const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] } 
 });
 
+// ★ 구글 공식 SDK 연결
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
 const waitingQueues = {}; 
 const matchTimers = {};
 const roomVotes = {};     
 const activeRooms = {};   
 
-// ★ 루프 삭제. OpenRouter 네이티브 폴백용 배열
-const FALLBACK_MODELS = [
-  "nvidia/nemotron-3-super-120b-a12b:free",
-  "openai/gpt-oss-120b:free",
-  "meta-llama/llama-3.3-70b-instruct:free",
-  "openrouter/free"
-];
+// ★ 구글 본섭 직결: Gemma 릴레이 + 최후의 보루(Gemini)
+// server.js 내 수정 부분
+async function getGoogleAIResponse(systemPrompt, history) {
+  const modelsToTry = [
+    "gemma-3-27b-it", // 1순위: 가장 똑똑한 27B
+    "gemma-3-12b-it", // 2순위: 균형 잡힌 12B
+    "gemma-3-4b-it",  // 3순위: 가벼운 4B
+    "gemini-2.0-flash" // 최후의 보루: 젬마 시리즈가 다 뻗을 때를 대비한 구글 메인 모델
+  ];
 
-// ★ 직통망 API 함수: 0.1초만에 OpenRouter가 알아서 가장 빠른 모델로 연결함
-async function fetchAIResponseFast(systemPrompt, history, maxTokens) {
-  try {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://we-us.online",
-        "X-Title": "WE US"
-      },
-      body: JSON.stringify({
-        models: FALLBACK_MODELS, // 배열로 넘기면 OpenRouter 내부에서 즉시 폴백 처리
-        messages: [{ role: 'system', content: systemPrompt }, ...history],
-        max_tokens: maxTokens
-      })
-    });
+  // ... 이하 동일
 
-    if (!response.ok) throw new Error(`API Error: ${response.status}`);
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-    
-    if (content && content.trim()) return content.trim();
-    throw new Error("AI returned empty content");
-  } catch (error) {
-    console.error("🔥 AI 직통망 응답 실패:", error.message);
-    throw error;
+  // 대화 기록을 구글 SDK가 이해하는 형식으로 변환
+  const contents = history.map(msg => ({
+    role: msg.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: msg.content }]
+  }));
+
+  for (const modelName of modelsToTry) {
+    try {
+      const model = genAI.getGenerativeModel({ 
+        model: modelName,
+        systemInstruction: systemPrompt 
+      });
+      
+      const result = await model.generateContent({ contents });
+      const responseText = result.response.text();
+      
+      if (responseText && responseText.trim()) {
+        return responseText.trim();
+      }
+    } catch (error) {
+      console.log(`[${modelName}] 실패 (다음 모델 시도) - 사유: ${error.message}`);
+    }
   }
+  return "AI 서버에 일시적인 트래픽이 몰렸습니다. 다른 말을 걸어주시겠어요?";
 }
 
 function startGroupRoom(queueKey) {
@@ -65,7 +69,6 @@ function startGroupRoom(queueKey) {
   activeRooms[roomName] = { type: 'multi', history: [], extensionCount: 0, participants: users.length };
 
   const aliases = ['익명 A', '익명 B', '익명 C', '익명 D'];
-  
   users.forEach((u, index) => {
     u.join(roomName);
     u.userAlias = aliases[index]; 
@@ -119,27 +122,26 @@ io.on('connection', (socket) => {
     } 
     else if (roomData.type === 'single') {
       roomData.history.push({ role: 'user', content: data.text }); 
-      try {
-        const systemPrompt = `넌 '${roomData.lang}' 대화 파트너야. 친근하게 대답해.`;
-        const aiReply = await fetchAIResponseFast(systemPrompt, roomData.history.slice(-8), 200);
-        roomData.history.push({ role: 'assistant', content: aiReply }); 
-        socket.emit('receive_message', { sender: 'AI 🤖', text: aiReply });
-      } catch (error) {
-        socket.emit('receive_message', { sender: 'System', text: '일시적인 통신 오류입니다. 다시 전송해주세요.' });
-      }
+      
+      const systemPrompt = `넌 '${roomData.lang}' 대화 파트너야. 친절하게 대답해.`;
+      const aiReply = await getGoogleAIResponse(systemPrompt, roomData.history.slice(-8));
+      
+      roomData.history.push({ role: 'assistant', content: aiReply }); 
+      socket.emit('receive_message', { sender: 'AI 🤖', text: aiReply });
     }
   });
 
   socket.on('request_ai_help', async (data) => {
-    try {
-      const chatHistory = data.history.slice(-5).map(msg => ({
-        role: msg.sender === '나' || msg.sender.includes('익명') ? 'user' : 'assistant',
-        content: `${msg.sender}: ${msg.text}`
-      }));
-      const systemPrompt = `익명 채팅방 진행자야. 10초간 정적이니 대화를 이을 질문 딱 1개만 던져. 50자 제한.`;
-      const aiMessage = await fetchAIResponseFast(systemPrompt, chatHistory, 150);
+    const chatHistory = data.history.slice(-5).map(msg => ({
+      role: msg.sender === '나' || msg.sender.includes('익명') ? 'user' : 'assistant',
+      content: `${msg.sender}: ${msg.text}`
+    }));
+    const systemPrompt = `익명 채팅방 진행자야. 10초간 정적이니 대화를 이을 질문 딱 1개만 던져. 50자 제한.`;
+    const aiMessage = await getGoogleAIResponse(systemPrompt, chatHistory);
+    
+    if (!aiMessage.includes("트래픽이 몰렸습니다")) {
       io.to(data.room).emit('receive_message', { sender: 'AI 🤖', text: aiMessage });
-    } catch (error) {}
+    }
   });
 
   socket.on('request_chemistry_report', async (data) => {
@@ -148,12 +150,13 @@ io.on('connection', (socket) => {
       io.to(data.room).emit('receive_report', { error: true });
       return;
     }
-    try {
-      const systemPrompt = `대화를 읽고 3줄 요약. 1. 그룹 티키타카 점수 2. 키워드(#해시태그 2개) 3. 한줄평`;
-      const reportContent = await fetchAIResponseFast(systemPrompt, [{ role: 'user', content: roomData.history.join('\n') }], 250);
-      io.to(data.room).emit('receive_report', { reportText: reportContent });
-    } catch (error) {
+    const systemPrompt = `대화를 읽고 3줄 요약. 1. 그룹 티키타카 점수 2. 키워드(#해시태그 2개) 3. 한줄평`;
+    const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: roomData.history.join('\n') }]);
+    
+    if (reportContent.includes("트래픽이 몰렸습니다")) {
       io.to(data.room).emit('receive_report', { error: true });
+    } else {
+      io.to(data.room).emit('receive_report', { reportText: reportContent });
     }
   });
 
@@ -174,7 +177,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ★ 완벽한 메모리 누수 차단 (CORS 에러 방지)
   socket.on('disconnecting', () => {
     for (const room of socket.rooms) {
       if (room !== socket.id) {
@@ -192,7 +194,7 @@ io.on('connection', (socket) => {
              delete roomVotes[room];
           }
         } else if (roomData.type === 'single') {
-          delete activeRooms[room]; // 싱글 모드 찌꺼기 완벽 삭제
+          delete activeRooms[room]; 
         }
       }
     }
@@ -206,4 +208,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => console.log(`🚀 WE US 백엔드 구동 완료 (포트: ${PORT})`));
+server.listen(PORT, () => console.log(`🚀 WE US 구동 완료 (포트: ${PORT})`));
