@@ -19,14 +19,12 @@ const roomVotes = {};
 const activeRooms = {};   
 
 async function getGoogleAIResponse(systemPrompt, history) {
-  // 한도 0으로 막힌 gemini는 제거하고 gemma 라인업만 유지
   const modelsToTry = [
     "gemma-3-27b-it",
     "gemma-3-12b-it",
     "gemma-3-4b-it"
   ];
 
-  // ★ 400 에러 해결: 시스템 프롬프트를 전용 칸이 아닌 유저의 첫 메시지에 강제로 병합
   const contents = history.map((msg, index) => {
     let text = msg.content;
     if (index === 0 && msg.role !== 'assistant') {
@@ -40,9 +38,7 @@ async function getGoogleAIResponse(systemPrompt, history) {
 
   for (const modelName of modelsToTry) {
     try {
-      // systemInstruction 파라미터 완전 제거
       const model = genAI.getGenerativeModel({ model: modelName });
-      
       const result = await model.generateContent({ contents });
       const responseText = result.response.text();
       
@@ -135,7 +131,7 @@ io.on('connection', (socket) => {
       role: msg.sender === '나' || msg.sender.includes('익명') ? 'user' : 'assistant',
       content: `${msg.sender}: ${msg.text}`
     }));
-    const systemPrompt = `익명 채팅방 진행자야. 10초간 정적이니 대화를 이을 질문 딱 1개만 던져. 50자 제한.`;
+    const systemPrompt = `너는 대화방의 'AI 진행자'야. 절대 대화 참여자(익명 A, 익명 B 등)를 연기하거나 대본을 쓰지 마. 10초간 정적이 흘렀으니 어색함을 깰 수 있는 짧고 센스 있는 질문 하나만 던져. (예: 다들 저녁은 드셨나요?) 50자 이내.`;
     const aiMessage = await getGoogleAIResponse(systemPrompt, chatHistory);
     
     if (!aiMessage.includes("실패했습니다")) {
@@ -143,14 +139,30 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ★ 변경: 싱글/멀티 구분하여 리포트 발급 로직 완비
   socket.on('request_chemistry_report', async (data) => {
     const roomData = activeRooms[data.room];
-    if (!roomData || roomData.type !== 'multi' || roomData.history.length < 4) {
+    if (!roomData || roomData.history.length < 4) {
       io.to(data.room).emit('receive_report', { error: true });
       return;
     }
-    const systemPrompt = `대화를 읽고 3줄 요약. 1. 그룹 티키타카 점수 2. 키워드(#해시태그 2개) 3. 한줄평`;
-    const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: roomData.history.join('\n') }]);
+
+    let systemPrompt = "";
+    let conversationText = "";
+
+    if (roomData.type === 'single') {
+      systemPrompt = `이 대화는 사용자가 AI(${roomData.lang})와 진행한 대화 연습이야. 대화를 평가해서 3줄로 요약해. 
+      1. 대화 주도력 점수: (100점 만점) 
+      2. 핵심 키워드: (#해시태그 2개) 
+      3. AI의 피드백: (칭찬이나 조언 한줄평)`;
+      // 싱글모드 객체 배열을 텍스트로 변환
+      conversationText = roomData.history.map(msg => `${msg.role === 'user' ? '나' : 'AI'}: ${msg.content}`).join('\n');
+    } else {
+      systemPrompt = `대화를 읽고 3줄 요약해. 1. 그룹 티키타카 점수: (100점 만점) 2. 핵심 키워드: (#해시태그 2개) 3. 한줄평`;
+      conversationText = roomData.history.join('\n');
+    }
+
+    const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }]);
     
     if (reportContent.includes("실패했습니다")) {
       io.to(data.room).emit('receive_report', { error: true });

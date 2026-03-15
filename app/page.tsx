@@ -20,8 +20,6 @@ export default function WeUsApp() {
   const [hasVoted, setHasVoted] = useState(false);
   const [partnerVoted, setPartnerVoted] = useState(false);
   const [extensionCount, setExtensionCount] = useState(0);
-  
-  // ★ 추가: 방 인원 수 및 투표 현황 표시용
   const [participantCount, setParticipantCount] = useState(2);
   const [voteStatus, setVoteStatus] = useState(''); 
 
@@ -42,9 +40,9 @@ export default function WeUsApp() {
     socketRef.current.on('matched', (data) => {
       const matchRoom = data.roomName || data.roomId; 
       setRoom(matchRoom);
-      setParticipantCount(data.participantCount || 2); // 인원수 저장
+      setParticipantCount(data.participantCount || 2); 
       setStep('chat');
-      setTimeLeft(180); 
+      setTimeLeft(180); // 테스트하실 땐 10 정도로 줄여서 해보세요!
       setHasVoted(false);
       setPartnerVoted(false);
       setVoteStatus('');
@@ -71,7 +69,6 @@ export default function WeUsApp() {
       }
     });
 
-    // 다수결 투표 현황 업데이트
     socketRef.current.on('partner_wants_extension', (data) => {
       setPartnerVoted(true);
       setVoteStatus(`(${data.currentVotes}/${data.total}명 동의)`);
@@ -105,26 +102,22 @@ export default function WeUsApp() {
     return () => { socketRef.current?.disconnect(); };
   }, [selectedLang, selectedTopic, isAnalyzing, reportData]);
 
+  // ★ 변경: 싱글/멀티 구분 없이 무조건 타이머 종료 시 분석 요청
   useEffect(() => {
     if (step !== 'chat' || timeLeft <= 0 || isAnalyzing || reportData) return;
     const timer = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
           clearInterval(timer);
-          if (isSingleMode) {
-            alert("대화 연습이 종료되었습니다.");
-            setStep('lobby');
-          } else {
-            setIsAnalyzing(true);
-            socketRef.current?.emit('request_chemistry_report', { room });
-          }
+          setIsAnalyzing(true);
+          socketRef.current?.emit('request_chemistry_report', { room });
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [step, timeLeft, isSingleMode, room, isAnalyzing, reportData]);
+  }, [step, timeLeft, room, isAnalyzing, reportData]);
 
   useEffect(() => {
     if (step !== 'chat' || isSingleMode) return; 
@@ -228,7 +221,10 @@ export default function WeUsApp() {
           {isAnalyzing && (
             <div className="absolute inset-0 bg-gray-900/90 flex flex-col items-center justify-center z-40 backdrop-blur-sm">
               <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-purple-500 mb-4"></div>
-              <p className="text-purple-400 font-bold animate-pulse">AI가 그룹 케미를 분석 중입니다...</p>
+              {/* 모드에 따라 로딩 텍스트 변경 */}
+              <p className="text-purple-400 font-bold animate-pulse">
+                {isSingleMode ? 'AI가 대화 실력을 분석 중입니다...' : 'AI가 그룹 케미를 분석 중입니다...'}
+              </p>
             </div>
           )}
 
@@ -236,7 +232,8 @@ export default function WeUsApp() {
             <div className="absolute inset-0 bg-gray-900/95 flex flex-col items-center justify-center z-50 p-6 backdrop-blur-md">
               <div className="bg-gray-800 border-2 border-purple-500 rounded-2xl p-6 w-full max-w-sm shadow-[0_0_30px_rgba(168,85,247,0.3)] flex flex-col">
                 <h2 className="text-2xl font-extrabold text-center mb-6 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-blue-400">
-                  📊 WE US 그룹 리포트
+                  {/* 모드에 따라 타이틀 변경 */}
+                  {isSingleMode ? '📊 AI 피드백 리포트' : '📊 WE US 그룹 리포트'}
                 </h2>
                 <div className="space-y-4 text-sm text-gray-200 whitespace-pre-line leading-relaxed flex-1">
                   {reportData}
