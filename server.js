@@ -26,7 +26,7 @@ const roomVotes = {};
 const activeRooms = {};   
 
 // ★ 가장 안정적인 OpenRouter 무료 모델로 교체
-const AI_MODEL = 'google/gemini-2.0-flash-exp:free';
+const AI_MODEL = 'openrouter/free';
 
 io.on('connection', (socket) => {
   console.log(`🟢 접속됨: ${socket.id}`);
