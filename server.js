@@ -6,7 +6,13 @@ const { OpenAI } = require('openai'); // 나중에 정식 오픈 때 쓸 API
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*", methods: ["GET", "POST"] } });
+const io = new Server(server, { 
+  cors: { 
+    origin: ["https://we-us-one.vercel.app", "http://localhost:3000"], 
+    methods: ["GET", "POST"],
+    credentials: true
+  } 
+});
 
 // ★ 변경 1: 한 명만 기다리던 방식에서 -> 카테고리별 방으로 쪼갬
 // 예: { "한국어_일상 대화": socket, "영어_상황극": socket }
