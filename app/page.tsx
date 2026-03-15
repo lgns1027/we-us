@@ -26,6 +26,10 @@ export default function WeUsApp() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [reportData, setReportData] = useState<string | null>(null);
 
+  // ★ 수익화 관련 상태값 추가
+  const [showAd, setShowAd] = useState(false);
+  const [adCountdown, setAdCountdown] = useState(3);
+
   const socketRef = useRef<Socket | null>(null);
   const lastInteractionTime = useRef<number>(Date.now());
   const messagesRef = useRef(messages);
@@ -42,13 +46,14 @@ export default function WeUsApp() {
       setRoom(matchRoom);
       setParticipantCount(data.participantCount || 2); 
       setStep('chat');
-      setTimeLeft(180); // 테스트하실 땐 10 정도로 줄여서 해보세요!
+      setTimeLeft(180); // 테스트 시 10으로 줄여서 확인하세요!
       setHasVoted(false);
       setPartnerVoted(false);
       setVoteStatus('');
       setExtensionCount(0); 
       setIsAnalyzing(false);
       setReportData(null);
+      setShowAd(false); // 매칭 시 광고 초기화
       
       const partnerName = data.partner || `총 ${data.participantCount}명`;
       setMessages([{ sender: 'System', text: `매칭 성공! [${selectedLang} - ${selectedTopic}] 모드로 ${partnerName}이 대화를 시작합니다.` }]);
@@ -63,7 +68,7 @@ export default function WeUsApp() {
     });
 
     socketRef.current.on('partner_left', () => {
-      if (!isAnalyzing && !reportData) {
+      if (!isAnalyzing && !reportData && !showAd) {
         alert("남은 인원이 없어 방이 종료되었습니다.");
         setStep('lobby');
       }
@@ -92,32 +97,43 @@ export default function WeUsApp() {
     socketRef.current.on('receive_report', (data) => {
       setIsAnalyzing(false);
       if (data.error) {
-        alert("대화 내용이 부족하여 AI 리포트를 생성하지 못했습니다.");
-        setStep('lobby');
+        // 에러 시 모달창에서 직접 보여주기 위해 예외처리
+        setReportData("대화 내용이 너무 짧거나 시스템 오류로 리포트를 발급할 수 없습니다.");
       } else {
         setReportData(data.reportText);
       }
     });
 
     return () => { socketRef.current?.disconnect(); };
-  }, [selectedLang, selectedTopic, isAnalyzing, reportData]);
+  }, [selectedLang, selectedTopic, isAnalyzing, reportData, showAd]);
 
-  // ★ 변경: 싱글/멀티 구분 없이 무조건 타이머 종료 시 분석 요청
+  // ★ 타이머 종료 시 광고 띄우기 로직
   useEffect(() => {
-    if (step !== 'chat' || timeLeft <= 0 || isAnalyzing || reportData) return;
+    if (step !== 'chat' || timeLeft <= 0 || isAnalyzing || reportData || showAd) return;
     const timer = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
           clearInterval(timer);
           setIsAnalyzing(true);
-          socketRef.current?.emit('request_chemistry_report', { room });
+          setShowAd(true);        // 1. 광고 창 띄우기
+          setAdCountdown(3);      // 2. 광고 3초 카운트다운 시작
+          socketRef.current?.emit('request_chemistry_report', { room }); // 3. 뒤에서 몰래 AI 리포트 요청
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [step, timeLeft, room, isAnalyzing, reportData]);
+  }, [step, timeLeft, room, isAnalyzing, reportData, showAd]);
+
+  // ★ 광고 3초 카운트다운 타이머
+  useEffect(() => {
+    if (!showAd || adCountdown <= 0) return;
+    const adTimer = setInterval(() => {
+      setAdCountdown(prev => prev - 1);
+    }, 1000);
+    return () => clearInterval(adTimer);
+  }, [showAd, adCountdown]);
 
   useEffect(() => {
     if (step !== 'chat' || isSingleMode) return; 
@@ -218,21 +234,56 @@ export default function WeUsApp() {
       ) : (
         <div className="w-full max-w-md h-[80vh] bg-gray-800 rounded-xl flex flex-col shadow-2xl overflow-hidden border border-gray-700 relative">
           
-          {isAnalyzing && (
+          {/* ★ 수익화 전면 광고 모달 (가장 최상단 z-60) */}
+          {showAd && (
+            <div className="absolute inset-0 bg-black/95 flex flex-col items-center justify-center z-[60] p-4 backdrop-blur-md">
+              <div className="w-full max-w-sm bg-gray-900 rounded-2xl overflow-hidden border border-gray-700 shadow-2xl flex flex-col animate-fade-in-up">
+                <div className="p-2 bg-gray-950 text-[10px] text-gray-500 text-right">Sponsored Advertisement</div>
+                
+                {/* 광고 배너 이미지 구역 */}
+                <div className="h-56 bg-gradient-to-br from-pink-500 via-red-500 to-yellow-500 flex flex-col items-center justify-center p-6 text-center relative overflow-hidden">
+                  <div className="absolute inset-0 bg-black/20"></div>
+                  <h3 className="text-2xl font-black text-white mb-2 z-10 drop-shadow-md">광고 없는 무제한 대화!</h3>
+                  <p className="text-white/90 text-sm z-10 font-bold">WE US 프리미엄 패스 출시 🎉</p>
+                  <button className="mt-4 bg-white text-red-500 px-6 py-2 rounded-full font-black text-sm z-10 shadow-lg hover:scale-105 transition-transform">
+                    지금 확인하기
+                  </button>
+                </div>
+
+                {/* 하단 컨트롤러 구역 */}
+                <div className="p-4 flex justify-between items-center bg-gray-900 border-t border-gray-800">
+                  <span className="text-xs text-gray-400 font-bold">
+                    {adCountdown > 0 ? `AI 분석 중...` : '리포트가 준비되었습니다!'}
+                  </span>
+                  <button
+                    onClick={() => setShowAd(false)}
+                    disabled={adCountdown > 0}
+                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all shadow-md ${
+                      adCountdown > 0 ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-500 animate-pulse'
+                    }`}
+                  >
+                    {adCountdown > 0 ? `${adCountdown}초 후 건너뛰기` : '결과 보기 ▶'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* AI 분석 로딩 창 (광고를 빨리 껐는데도 AI가 늦을 때 대비) */}
+          {isAnalyzing && !showAd && !reportData && (
             <div className="absolute inset-0 bg-gray-900/90 flex flex-col items-center justify-center z-40 backdrop-blur-sm">
               <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-purple-500 mb-4"></div>
-              {/* 모드에 따라 로딩 텍스트 변경 */}
               <p className="text-purple-400 font-bold animate-pulse">
-                {isSingleMode ? 'AI가 대화 실력을 분석 중입니다...' : 'AI가 그룹 케미를 분석 중입니다...'}
+                {isSingleMode ? 'AI가 대화 실력을 정리 중입니다...' : 'AI가 그룹 케미를 분석 중입니다...'}
               </p>
             </div>
           )}
 
-          {reportData && (
+          {/* AI 성적표 결과 창 */}
+          {reportData && !showAd && (
             <div className="absolute inset-0 bg-gray-900/95 flex flex-col items-center justify-center z-50 p-6 backdrop-blur-md">
-              <div className="bg-gray-800 border-2 border-purple-500 rounded-2xl p-6 w-full max-w-sm shadow-[0_0_30px_rgba(168,85,247,0.3)] flex flex-col">
+              <div className="bg-gray-800 border-2 border-purple-500 rounded-2xl p-6 w-full max-w-sm shadow-[0_0_30px_rgba(168,85,247,0.3)] flex flex-col animate-fade-in-up">
                 <h2 className="text-2xl font-extrabold text-center mb-6 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-blue-400">
-                  {/* 모드에 따라 타이틀 변경 */}
                   {isSingleMode ? '📊 AI 피드백 리포트' : '📊 WE US 그룹 리포트'}
                 </h2>
                 <div className="space-y-4 text-sm text-gray-200 whitespace-pre-line leading-relaxed flex-1">
@@ -278,7 +329,7 @@ export default function WeUsApp() {
             ))}
           </div>
 
-          {timeLeft <= 60 && !isSingleMode && !isAnalyzing && !reportData && extensionCount < 2 && (
+          {timeLeft <= 60 && !isSingleMode && !isAnalyzing && !reportData && extensionCount < 2 && !showAd && (
             <div className="absolute bottom-[68px] left-0 w-full p-2 bg-gray-900/90 backdrop-blur-sm border-t border-gray-700 flex flex-col items-center justify-center animate-fade-in-up">
               <button
                 onClick={() => {
@@ -305,11 +356,11 @@ export default function WeUsApp() {
               type="text" 
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              disabled={isAnalyzing || !!reportData} 
+              disabled={isAnalyzing || !!reportData || showAd} 
               placeholder="메시지를 입력하세요..." 
               className="flex-1 bg-gray-800 text-white px-4 py-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
             />
-            <button type="submit" disabled={isAnalyzing || !!reportData} className="bg-blue-600 px-4 py-2 rounded-lg font-bold hover:bg-blue-700 whitespace-nowrap disabled:opacity-50">
+            <button type="submit" disabled={isAnalyzing || !!reportData || showAd} className="bg-blue-600 px-4 py-2 rounded-lg font-bold hover:bg-blue-700 whitespace-nowrap disabled:opacity-50">
               전송
             </button>
           </form>
