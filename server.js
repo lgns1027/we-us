@@ -8,10 +8,7 @@ const app = express();
 const server = http.createServer(app);
 
 const io = new Server(server, { 
-  cors: { 
-    origin: "*", 
-    methods: ["GET", "POST"]
-  } 
+  cors: { origin: "*", methods: ["GET", "POST"] } 
 });
 
 const openai = new OpenAI({
@@ -24,13 +21,42 @@ const waitingQueues = {};
 const roomVotes = {};     
 const activeRooms = {};   
 
-// ★ 가장 안정적이고 응답이 긴 구글 Gemini 무료 모델
-const AI_MODEL = 'meta-llama/llama-3.3-70b-instruct:free';
+// ★ 에이스 알바생 3명 대기열 (1순위가 바쁘면 2, 3순위가 즉각 대타 출동)
+const AI_MODELS = [
+  'meta-llama/llama-3.3-70b-instruct:free',
+  'google/gemini-2.0-flash-lite-preview-02-05:free',
+  'google/gemma-3-27b-it:free'
+];
+
+// ★ 핵심 플랜 B 엔진: 모델이 터지면 다음 모델로 자동 재시도하는 함수
+async function fetchAIResponse(systemPrompt, history, maxTokens) {
+  for (const model of AI_MODELS) {
+    try {
+      const response = await openai.chat.completions.create({
+        model: model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          ...history
+        ],
+        max_tokens: maxTokens
+      });
+      const content = response.choices[0]?.message?.content;
+      if (content && content.trim()) {
+        return content.trim(); // 성공하면 즉시 답변 반환
+      }
+    } catch (error) {
+      console.warn(`⚠️ [${model}] 응답 실패. 다음 모델로 전환합니다. (사유: ${error.message})`);
+      continue; // 에러(429 등) 나면 멈추지 않고 다음 모델로 넘어감
+    }
+  }
+  // 3명이 전부 다 바빠서 터졌을 때의 최후 방어선
+  throw new Error("모든 AI 모델이 현재 응답할 수 없습니다.");
+}
 
 io.on('connection', (socket) => {
   console.log(`🟢 접속됨: ${socket.id}`);
 
-  // 1. [멀티 모드]
+  // 1. [멀티 모드] 매칭
   socket.on('join_queue', (data) => {
     const lang = data?.lang || '한국어';
     const topic = data?.topic || '일상 대화';
@@ -43,7 +69,7 @@ io.on('connection', (socket) => {
       socket.join(roomName);
       partnerSocket.join(roomName);
 
-      activeRooms[roomName] = { type: 'multi', history: [] };
+      activeRooms[roomName] = { type: 'multi', history: [], extensionCount: 0 };
       io.to(roomName).emit('matched', { roomName, hostId: socket.id });
       delete waitingQueues[queueKey]; 
     } else {
@@ -52,7 +78,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // 2. [싱글 모드]
+  // 2. [싱글 모드] AI 방 생성
   socket.on('start_ai_chat', (lang) => {
     const roomId = `ai_${socket.id}_${Date.now()}`;
     socket.join(roomId);
@@ -65,7 +91,7 @@ io.on('connection', (socket) => {
     activeRooms[roomId].history.push({ role: 'assistant', content: welcomeMsg });
   });
 
-  // 3. 메시지 라우터 (채팅 전송)
+  // 3. 메시지 송수신 및 AI 답변
   socket.on('send_message', async (data) => {
     const roomData = activeRooms[data.room || data.roomId];
     if (!roomData) return;
@@ -77,24 +103,15 @@ io.on('connection', (socket) => {
     else if (roomData.type === 'single') {
       roomData.history.push({ role: 'user', content: data.text }); 
       try {
-        const response = await openai.chat.completions.create({
-          model: AI_MODEL,
-          messages: [
-            { role: 'system', content: `넌 사용자의 '${roomData.lang}' 대화 연습 파트너야. 반드시 '${roomData.lang}' 언어로만 친근하게 대답해.` },
-            ...roomData.history.slice(-8) 
-          ],
-          max_tokens: 150
-        });
-        
-        // ★ 방어벽 1: AI 응답이 null일 경우 예외 처리
-        let aiReply = response.choices[0]?.message?.content;
-        aiReply = aiReply ? aiReply.trim() : "AI가 잠시 생각에 빠졌습니다. 다른 말을 걸어주시겠어요?";
+        const systemPrompt = `넌 사용자의 '${roomData.lang}' 대화 연습 파트너야. 반드시 '${roomData.lang}' 언어로만 친근하게 대답해.`;
+        // ★ 릴레이 엔진 호출
+        const aiReply = await fetchAIResponse(systemPrompt, roomData.history.slice(-8), 150);
         
         roomData.history.push({ role: 'assistant', content: aiReply }); 
         socket.emit('receive_message', { sender: 'AI 🤖', text: aiReply });
       } catch (error) {
-        console.error("🔥 [싱글모드 에러]:", error.message || error);
-        socket.emit('receive_message', { sender: 'System', text: 'AI 연결 상태가 불안정합니다.' });
+        console.error("🔥 [싱글모드 완전 실패]:", error.message);
+        socket.emit('receive_message', { sender: 'System', text: '현재 접속자가 너무 많아 AI가 답변을 놓쳤습니다. 다시 말씀해주시겠어요?' });
       }
     }
   });
@@ -107,26 +124,16 @@ io.on('connection', (socket) => {
         content: `${msg.sender}: ${msg.text}`
       }));
 
-      const response = await openai.chat.completions.create({
-        model: AI_MODEL,
-        messages: [
-          { role: 'system', content: `너는 익명 채팅방의 눈치빠른 진행자야. 10초간 말이 없어 어색한 상황이니 대화를 다시 이어갈 수 있는 가볍고 센스있는 질문을 한국어로 딱 1개만 던져. 50자 제한.` },
-          ...chatHistory
-        ],
-        max_tokens: 100
-      });
-
-      // ★ 방어벽 2: 정적 브레이커 예외 처리
-      const aiMessage = response.choices[0]?.message?.content;
-      if (aiMessage && aiMessage.trim()) {
-        io.to(data.room).emit('receive_message', { sender: 'AI 🤖', text: aiMessage.trim() });
-      }
+      const systemPrompt = `너는 익명 채팅방의 눈치빠른 진행자야. 10초간 말이 없어 어색한 상황이니 대화를 다시 이어갈 수 있는 가볍고 센스있는 질문을 한국어로 딱 1개만 던져. 50자 제한.`;
+      
+      const aiMessage = await fetchAIResponse(systemPrompt, chatHistory, 100);
+      io.to(data.room).emit('receive_message', { sender: 'AI 🤖', text: aiMessage });
     } catch (error) {
-      console.error("🔥 [정적 브레이커 에러]:", error.message || error);
+      console.error("🔥 [정적 브레이커 완전 실패]:", error.message);
     }
   });
 
-  // 5. AI 케미 리포트 발급
+  // 5. AI 케미 리포트
   socket.on('request_chemistry_report', async (data) => {
     const roomData = activeRooms[data.room];
     if (!roomData || roomData.type !== 'multi' || roomData.history.length < 4) {
@@ -135,48 +142,38 @@ io.on('connection', (socket) => {
     }
 
     try {
-      const response = await openai.chat.completions.create({
-        model: AI_MODEL,
-        messages: [
-          { 
-            role: 'system', 
-            content: `두 사람의 대화를 읽고 정확히 3줄로 요약해. 
-            1. 티키타카 점수: (100점 만점) 
-            2. 핵심 키워드: (#해시태그 2개) 
-            3. AI 한줄평: (대화 흐름 평가)` 
-          },
-          { role: 'user', content: roomData.history.join('\n') }
-        ],
-        max_tokens: 250 // 리포트가 잘리지 않도록 넉넉하게 확장
-      });
+      const systemPrompt = `두 사람의 대화를 읽고 정확히 3줄로 요약해. 
+      1. 티키타카 점수: (100점 만점) 
+      2. 핵심 키워드: (#해시태그 2개) 
+      3. AI 한줄평: (대화 흐름 평가)`;
       
-      // ★ 방어벽 3: 리포트 생성 예외 처리
-      const reportContent = response.choices[0]?.message?.content;
-      if (reportContent) {
-        io.to(data.room).emit('receive_report', { reportText: reportContent.trim() });
-      } else {
-        io.to(data.room).emit('receive_report', { error: true });
-      }
+      const reportContent = await fetchAIResponse(systemPrompt, [{ role: 'user', content: roomData.history.join('\n') }], 250);
+      io.to(data.room).emit('receive_report', { reportText: reportContent });
     } catch (error) {
-      console.error("🔥 [케미 리포트 에러]:", error.message || error);
+      console.error("🔥 [케미 리포트 완전 실패]:", error.message);
       io.to(data.room).emit('receive_report', { error: true });
     }
   });
 
-  // 6. 2분 연장 투표
+  // 6. 연장 투표 (2회 제한 포함)
   socket.on('vote_extend', (data) => {
     const room = data.room;
+    const roomData = activeRooms[room];
+    if (!roomData) return;
+
     if (!roomVotes[room]) roomVotes[room] = new Set();
     roomVotes[room].add(socket.id);
+
     if (roomVotes[room].size === 2) {
-      io.to(room).emit('time_extended', 120);
+      roomData.extensionCount += 1;
+      io.to(room).emit('time_extended', { addedTime: 120, currentExtensions: roomData.extensionCount });
       roomVotes[room].clear();
     } else {
       socket.to(room).emit('partner_wants_extension');
     }
   });
 
-  // 7. 이탈 방지 및 데이터 정리
+  // 7. 연결 해제 관리
   socket.on('disconnecting', () => {
     for (const room of socket.rooms) {
       if (room !== socket.id) {
