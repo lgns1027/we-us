@@ -7,7 +7,7 @@ const { OpenAI } = require('openai');
 const app = express();
 const server = http.createServer(app);
 
-// [1] 무적의 CORS 설정: 일단 통신부터 무조건 되게 만듭니다.
+// CORS 설정: 모든 접근 허용
 const io = new Server(server, { 
   cors: { 
     origin: "*", 
@@ -21,17 +21,17 @@ const openai = new OpenAI({
   defaultHeaders: { "HTTP-Referer": "https://we-us.online", "X-Title": "WE US" }
 });
 
-// [2] 상태 관리 저장소 (데이터베이스 역할)
-const waitingQueues = {}; // 대기열
-const roomVotes = {};     // 연장 투표함
-const activeRooms = {};   // 활성화된 방의 모든 데이터 (대화 기록, 모드 등)
+const waitingQueues = {}; 
+const roomVotes = {};     
+const activeRooms = {};   
+
+// ★ 가장 안정적인 OpenRouter 무료 모델로 교체
+const AI_MODEL = 'google/gemini-2.0-flash-exp:free';
 
 io.on('connection', (socket) => {
   console.log(`🟢 접속됨: ${socket.id}`);
 
-  // ==========================================
-  // 기능 1: 멀티 모드 매칭 시스템
-  // ==========================================
+  // 1. [멀티 모드]
   socket.on('join_queue', (data) => {
     const lang = data?.lang || '한국어';
     const topic = data?.topic || '일상 대화';
@@ -53,9 +53,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ==========================================
-  // 기능 2: 싱글 모드 (AI 봇 대화 연습)
-  // ==========================================
+  // 2. [싱글 모드]
   socket.on('start_ai_chat', (lang) => {
     const roomId = `ai_${socket.id}_${Date.now()}`;
     socket.join(roomId);
@@ -68,9 +66,7 @@ io.on('connection', (socket) => {
     activeRooms[roomId].history.push({ role: 'assistant', content: welcomeMsg });
   });
 
-  // ==========================================
-  // 기능 3: 핵심 메시지 라우터 (채팅 전송)
-  // ==========================================
+  // 3. 메시지 라우터 (채팅 전송)
   socket.on('send_message', async (data) => {
     const roomData = activeRooms[data.room || data.roomId];
     if (!roomData) return;
@@ -83,7 +79,7 @@ io.on('connection', (socket) => {
       roomData.history.push({ role: 'user', content: data.text }); 
       try {
         const response = await openai.chat.completions.create({
-          model: 'google/gemini-2.0-flash-lite-preview-02-05:free',
+          model: AI_MODEL,
           messages: [
             { role: 'system', content: `넌 사용자의 '${roomData.lang}' 대화 연습 파트너야. '${roomData.lang}'로만 답해.` },
             ...roomData.history.slice(-8) 
@@ -94,14 +90,14 @@ io.on('connection', (socket) => {
         roomData.history.push({ role: 'assistant', content: aiReply }); 
         socket.emit('receive_message', { sender: 'AI 🤖', text: aiReply });
       } catch (error) {
-        socket.emit('receive_message', { sender: 'System', text: 'AI 응답 에러' });
+        // ★ 에러 상세 로그 출력
+        console.error("🔥 [싱글모드] AI 응답 에러 상세:", error.message || error);
+        socket.emit('receive_message', { sender: 'System', text: 'AI 연결 상태가 불안정합니다. (Render 로그 확인 요망)' });
       }
     }
   });
 
-  // ==========================================
-  // 기능 4: 10초 정적 브레이커 (Ice-breaker) 
-  // ==========================================
+  // 4. 10초 정적 브레이커
   socket.on('request_ai_help', async (data) => {
     try {
       const chatHistory = data.history.slice(-5).map(msg => ({
@@ -110,7 +106,7 @@ io.on('connection', (socket) => {
       }));
 
       const response = await openai.chat.completions.create({
-        model: 'google/gemini-2.0-flash-lite-preview-02-05:free',
+        model: AI_MODEL,
         messages: [
           { role: 'system', content: `너는 익명 채팅방의 진행자야. 유저들이 10초간 말이 없어 어색한 상황이니 대화를 이어갈 수 있는 가볍고 센스있는 질문을 딱 1개만 던져. 절대 50자를 넘기지 마.` },
           ...chatHistory
@@ -123,13 +119,11 @@ io.on('connection', (socket) => {
         io.to(data.room).emit('receive_message', { sender: 'AI 🤖', text: aiMessage });
       }
     } catch (error) {
-      console.error("정적 브레이커 작동 실패:", error);
+      console.error("🔥 [정적 브레이커] 에러 상세:", error.message || error);
     }
   });
 
-  // ==========================================
-  // 기능 5: 대화 종료 후 AI 케미 리포트 발급
-  // ==========================================
+  // 5. AI 케미 리포트 발급
   socket.on('request_chemistry_report', async (data) => {
     const roomData = activeRooms[data.room];
     if (!roomData || roomData.type !== 'multi' || roomData.history.length < 4) {
@@ -139,7 +133,7 @@ io.on('connection', (socket) => {
 
     try {
       const response = await openai.chat.completions.create({
-        model: 'google/gemini-2.0-flash-lite-preview-02-05:free',
+        model: AI_MODEL,
         messages: [
           { 
             role: 'system', 
@@ -151,13 +145,12 @@ io.on('connection', (socket) => {
       });
       io.to(data.room).emit('receive_report', { reportText: response.choices[0].message.content.trim() });
     } catch (error) {
+      console.error("🔥 [케미 리포트] 에러 상세:", error.message || error);
       io.to(data.room).emit('receive_report', { error: true });
     }
   });
 
-  // ==========================================
-  // 기능 6: 2분 연장 투표
-  // ==========================================
+  // 6. 2분 연장 투표
   socket.on('vote_extend', (data) => {
     const room = data.room;
     if (!roomVotes[room]) roomVotes[room] = new Set();
@@ -170,9 +163,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ==========================================
-  // 기능 7: 이탈 방지 및 데이터 정리 (Garbage Collection)
-  // ==========================================
+  // 7. 이탈 방지 및 데이터 정리
   socket.on('disconnecting', () => {
     for (const room of socket.rooms) {
       if (room !== socket.id) {
