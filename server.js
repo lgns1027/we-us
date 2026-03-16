@@ -21,13 +21,23 @@ const ReportSchema = new mongoose.Schema({
   roomName: String,
   userIds: [String], 
   type: String, 
-  topic: String, // lang 대신 통합 topic 활용
+  topic: String, 
   participants: Number,
   fullLog: [String],
   aiReport: String,
   createdAt: { type: Date, default: Date.now }
 });
 const Report = mongoose.model('Report', ReportSchema);
+
+// ★ 추가: 악성 유저 블랙리스트 스키마
+const BlacklistSchema = new mongoose.Schema({
+  roomName: String,
+  reporterId: String,       // 신고한 사람
+  reportedUserIds: [String],// 신고당한 방의 나머지 사람들
+  reason: String,           // 신고 사유
+  createdAt: { type: Date, default: Date.now }
+});
+const Blacklist = mongoose.model('Blacklist', BlacklistSchema);
 
 // --- [2. 상태 관리 변수] ---
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -36,10 +46,21 @@ const matchTimers = {};
 const roomVotes = {};     
 const activeRooms = {};   
 
-// --- [3. AI 통신 엔진 (Gemma 3중 루프 유지! 절대 건드리지 않음)] ---
+// ★ 추가: 기본 비속어 마스킹 로직 (MVP 버전)
+const BAD_WORDS = ['씨발', '시발', '개새끼', '병신', '지랄', '미친년', '좆'];
+function maskProfanity(text) {
+  let maskedText = text;
+  BAD_WORDS.forEach(word => {
+    const regex = new RegExp(word, 'gi');
+    maskedText = maskedText.replace(regex, '***');
+  });
+  return maskedText;
+}
+
+// --- [3. AI 통신 엔진 (Gemma 3중 루프 유지!)] ---
 async function getGoogleAIResponse(systemPrompt, history, maxTokens = 150) {
   const modelsToTry = [
-    "gemma-3-12b-it", // 속도와 성능 밸런스 1순위
+    "gemma-3-12b-it", 
     "gemma-3-27b-it",
     "gemma-3-4b-it"
   ];
@@ -74,9 +95,7 @@ async function getGoogleAIResponse(systemPrompt, history, maxTokens = 150) {
   return "네트워크가 불안정하여 AI가 답변을 고민하고 있습니다.";
 }
 
-// ★ [핵심 혁신] 다중 페르소나 시스템 프롬프트 생성기
 function getPersonaPrompt(topic, isReport = false) {
-  // 1. 리포트(성적표) 발급용 프롬프트 분기
   if (isReport) {
     if (['한국어', '영어', '일본어', '프랑스어'].includes(topic)) {
       return `사용자가 AI와 진행한 '${topic}' 어학 기록입니다. 언어 전문가의 시선으로 1. 종합 성취도(100점 만점) 2. 대화의 강점(1줄) 3. 성장을 위한 조언(1줄)을 작성하세요.`;
@@ -87,26 +106,19 @@ function getPersonaPrompt(topic, isReport = false) {
     }
   }
 
-  // 2. 실시간 대화용 페르소나 프롬프트 분기
   switch(topic) {
     case '한국어': case '영어': case '일본어': case '프랑스어':
       return `당신은 최고 수준의 '${topic}' 원어민 튜터입니다. 사용자의 언어 학습을 돕고 지적인 대화를 이끌어주세요. 어색한 표현이 있다면 대화 끝에 '[💡 교정: 올바른 표현]'을 부드럽게 추가하세요.`;
-    
     case '최악의 이불킥 경험':
       return `당신은 심리 상담가이자 우아한 대화 모더레이터입니다. 사용자의 부끄러운 경험을 경청하고 인간적인 공감과 함께 유쾌하게 분위기를 풀어주세요.`;
-    
     case '자본주의 생존기':
       return `당신은 자본주의 시스템과 권력 구조의 이면을 꿰뚫어 보는 날카로운 지식인입니다. 현대 사회의 부조리와 돈의 논리에 대해 깊이 있고 도발적인 질문을 던지며 토론을 이끌어주세요.`;
-    
     case '100억 받기 VS 무병장수':
       return `당신은 토론의 '악마의 대변인'입니다. 사용자가 100억을 고르면 무병장수의 가치로 공격하고, 무병장수를 고르면 100억이 주는 권력과 자유를 무기로 무자비하게 반박하세요.`;
-    
     case '진상손님 방어전 (알바생)':
       return `당신은 극악무도하고 논리가 통하지 않는 진상 손님입니다. 사용자는 알바생입니다. 말도 안 되는 이유로 환불이나 서비스를 요구하며 사용자의 멘탈을 흔드세요. 절대 쉽게 물러서지 마세요.`;
-    
     case '압박 면접 (지원자)':
       return `당신은 피도 눈물도 없는 대기업의 수석 면접관입니다. 사용자는 지원자입니다. 사용자의 답변에 꼬리를 물고, 구조적인 허점을 파고드는 날카롭고 차가운 압박 질문만 던지세요.`;
-    
     default:
       return `당신은 수준 높은 살롱(Salon)의 대화 파트너입니다. 깊이 있고 흥미로운 대화를 이끌어주세요.`;
   }
@@ -172,13 +184,12 @@ io.on('connection', (socket) => {
     
     activeRooms[roomId] = { 
       type: 'single', 
-      topic: topic, // 프론트에서 넘겨준 주제 저장
+      topic: topic,
       history: [], 
       isGeneratingReport: false,
       userIds: new Set() 
     };
     
-    // 파트너 이름 동적 설정
     let partnerName = '대화 파트너';
     if (['한국어', '영어', '일본어', '프랑스어'].includes(topic)) partnerName = `수석 ${topic} 튜터`;
     else if (topic === '진상손님 방어전 (알바생)') partnerName = '진상 손님 🤬';
@@ -195,14 +206,16 @@ io.on('connection', (socket) => {
     const roomData = activeRooms[data.room || data.roomId];
     if (!roomData) return;
 
+    // ★ 적용: 유저가 보낸 메시지를 가로채서 욕설 필터링 수행
+    const safeText = maskProfanity(data.text);
+
     if (roomData.type === 'multi') {
-      roomData.history.push(`${socket.userAlias}: ${data.text}`);
-      socket.to(data.room).emit('receive_message', { sender: socket.userAlias, text: data.text });
+      roomData.history.push(`${socket.userAlias}: ${safeText}`);
+      socket.to(data.room).emit('receive_message', { sender: socket.userAlias, text: safeText });
     } 
     else if (roomData.type === 'single') {
-      roomData.history.push({ role: 'user', content: data.text }); 
+      roomData.history.push({ role: 'user', content: safeText }); 
       
-      // ★ 동적 시스템 프롬프트 불러오기
       const systemPrompt = getPersonaPrompt(roomData.topic, false);
       const aiReply = await getGoogleAIResponse(systemPrompt, roomData.history.slice(-8), 150);
       
@@ -225,6 +238,35 @@ io.on('connection', (socket) => {
     
     if (!aiMessage.includes("불안정하여")) {
       io.to(data.room).emit('receive_message', { sender: 'AI 🤖', text: aiMessage });
+    }
+  });
+
+  // ★ 추가: 방 신고 접수 로직 (상대방 차단 및 DB 기록)
+  socket.on('report_room', async (data) => {
+    const { room, reporterId, reason } = data;
+    const roomData = activeRooms[room];
+    if (!roomData) return;
+
+    try {
+      // 해당 방에 있던 유저 ID 중 신고자를 제외한 나머지(상대방)를 블랙리스트 타겟으로 추출
+      const reportedUsers = Array.from(roomData.userIds).filter(id => id !== reporterId);
+      
+      await Blacklist.create({
+        roomName: room,
+        reporterId: reporterId,
+        reportedUserIds: reportedUsers,
+        reason: reason
+      });
+      console.log(`🚨 [신고 접수] 방: ${room}, 사유: ${reason}, 타겟: ${reportedUsers.join(', ')}`);
+
+      // 방 폭파 및 상대방 강제 퇴장 처리
+      socket.to(room).emit('receive_message', { sender: 'System', text: `[경고] 누군가 이 방을 신고하여 대화가 강제 종료되었습니다.` });
+      socket.to(room).emit('partner_left');
+      delete activeRooms[room];
+      delete roomVotes[room];
+      
+    } catch (err) {
+      console.error("🔥 신고 DB 저장 실패:", err);
     }
   });
 
