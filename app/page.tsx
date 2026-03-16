@@ -5,29 +5,10 @@ import { io, Socket } from 'socket.io-client';
 
 const SERVER_URL = 'https://we-us-backend.onrender.com';
 
-// ★ S급 로비 큐레이션 데이터
 const LOBBY_CATEGORIES = [
-  { 
-    id: 'lang', 
-    icon: '🌍', 
-    title: '어학 튜터링', 
-    desc: 'AI 튜터 및 글로벌 유저와 실전 회화',
-    options: ['한국어', '영어', '일본어', '프랑스어'] 
-  },
-  { 
-    id: 'deep', 
-    icon: '🍷', 
-    title: '딥 토크 살롱', 
-    desc: '일상에서 나누기 힘든 철학적, 지적 대화',
-    options: ['최악의 이불킥 경험', '자본주의 생존기', '100억 받기 VS 무병장수'] 
-  },
-  { 
-    id: 'roleplay', 
-    icon: '🎭', 
-    title: '도파민 롤플레잉', 
-    desc: '스트레스 해소용 익명 상황극',
-    options: ['진상손님 방어전 (알바생)', '압박 면접 (지원자)'] 
-  }
+  { id: 'lang', icon: '🌍', title: '어학 튜터링', desc: 'AI 튜터 및 글로벌 유저와 실전 회화', options: ['한국어', '영어', '일본어', '프랑스어'] },
+  { id: 'deep', icon: '🍷', title: '딥 토크 살롱', desc: '일상에서 나누기 힘든 철학적, 지적 대화', options: ['최악의 이불킥 경험', '자본주의 생존기', '100억 받기 VS 무병장수'] },
+  { id: 'roleplay', icon: '🎭', title: '도파민 롤플레잉', desc: '스트레스 해소용 익명 상황극', options: ['진상손님 방어전 (알바생)', '압박 면접 (지원자)'] }
 ];
 
 export default function WeUsApp() {
@@ -43,9 +24,8 @@ export default function WeUsApp() {
   const [isHost, setIsHost] = useState(false); 
   const [isSingleMode, setIsSingleMode] = useState(false); 
   
-  // ★ 로비 선택 상태 관리
   const [selectedCategory, setSelectedCategory] = useState<string>('lang');
-  const [selectedTopic, setSelectedTopic] = useState<string>('영어');
+  const [selectedTopic, setSelectedTopic] = useState<string>('한국어');
 
   const [hasVoted, setHasVoted] = useState(false);
   const [partnerVoted, setPartnerVoted] = useState(false);
@@ -59,13 +39,19 @@ export default function WeUsApp() {
   const [showAd, setShowAd] = useState(false);
   const [adCountdown, setAdCountdown] = useState(3);
 
-  // ★ UX 개선: 지연 시간 마스킹용 상태값 추가
-  const [isConnecting, setIsConnecting] = useState(false); // 매칭 접속 로딩
-  const [isTyping, setIsTyping] = useState(false); // 상대방(AI) 타이핑 애니메이션
+  const [isConnecting, setIsConnecting] = useState(false); 
+  const [isTyping, setIsTyping] = useState(false); 
 
   const socketRef = useRef<Socket | null>(null);
   const lastInteractionTime = useRef<number>(Date.now());
   const messagesRef = useRef(messages);
+  
+  // ★ [핵심 픽스 1] 소켓이 끊기지 않도록, 변하는 상태값들을 Ref 주머니에 실시간 백업
+  const stateRefs = useRef({ selectedTopic, isAnalyzing, reportData, showAd });
+
+  useEffect(() => {
+    stateRefs.current = { selectedTopic, isAnalyzing, reportData, showAd };
+  }, [selectedTopic, isAnalyzing, reportData, showAd]);
 
   useEffect(() => {
     let storedId = localStorage.getItem('weus_user_id');
@@ -80,16 +66,16 @@ export default function WeUsApp() {
     messagesRef.current = messages;
   }, [messages]);
 
+  // ★ [핵심 픽스 2] 소켓 연결 로직의 의존성 배열을 빈칸([])으로 만들어 강제 종료 방지
   useEffect(() => {
     socketRef.current = io(SERVER_URL);
 
-    // 내 기록 받아오기
     socketRef.current.on('receive_my_records', (records) => {
       setMyReports(records);
     });
 
     socketRef.current.on('matched', (data) => {
-      setIsConnecting(false); // ★ 매칭 완료 시 버튼 로딩 해제
+      setIsConnecting(false); 
       const matchRoom = data.roomName || data.roomId; 
       setRoom(matchRoom);
       setParticipantCount(data.participantCount || 2); 
@@ -102,22 +88,25 @@ export default function WeUsApp() {
       setIsAnalyzing(false);
       setReportData(null);
       setShowAd(false); 
-      setIsTyping(false); // 타이핑 초기화
+      setIsTyping(false); 
       
       const partnerName = data.partner || `총 ${data.participantCount}명`;
-      setMessages([{ sender: 'System', text: `[${selectedTopic}] 주제로 ${partnerName}와 연결되었습니다.` }]);
+      // Ref 주머니에서 안전하게 최신 주제를 꺼내옴
+      setMessages([{ sender: 'System', text: `[${stateRefs.current.selectedTopic}] 주제로 ${partnerName}와 연결되었습니다.` }]);
       
       lastInteractionTime.current = Date.now();
       if (socketRef.current?.id === data.hostId) setIsHost(true);
     });
 
     socketRef.current.on('receive_message', (data) => {
-      setIsTyping(false); // ★ 메시지 도착 시 타이핑 애니메이션 즉시 종료
+      setIsTyping(false); 
       setMessages((prev) => [...prev, { sender: data.sender, text: data.text }]);
       lastInteractionTime.current = Date.now();
     });
 
     socketRef.current.on('partner_left', () => {
+      // Ref 주머니에서 현재 상태를 확인하여 분석 중이 아닐 때만 튕김 처리
+      const { isAnalyzing, reportData, showAd } = stateRefs.current;
       if (!isAnalyzing && !reportData && !showAd) {
         alert("남은 인원이 없어 방이 종료되었습니다.");
         setStep('lobby');
@@ -154,7 +143,7 @@ export default function WeUsApp() {
     });
 
     return () => { socketRef.current?.disconnect(); };
-  }, [selectedTopic, isAnalyzing, reportData, showAd]);
+  }, []); // <--- 이 부분이 핵심입니다. 빈 배열로 고정하여 절대 끊기지 않게 만듭니다.
 
   useEffect(() => {
     if (activeTab === 'myRecord' && userId && socketRef.current) {
