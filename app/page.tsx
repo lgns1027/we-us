@@ -158,7 +158,6 @@ export default function WeUsApp() {
     return `${m}:${s}`;
   };
 
-  // ★ 추가: 방 나가기 로직
   const leaveRoom = () => {
     if (confirm("정말 대화방에서 나가시겠습니까?")) {
       socketRef.current?.emit('leave_room', { room });
@@ -166,7 +165,6 @@ export default function WeUsApp() {
     }
   };
 
-  // ★ 추가: 모바일 네이티브 공유 로직 (Web Share API)
   const handleShare = async () => {
     if (navigator.share) {
       try {
@@ -183,102 +181,110 @@ export default function WeUsApp() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-4">
+    <div className="min-h-screen bg-[#050505] text-gray-100 font-sans flex flex-col items-center justify-center p-4 relative overflow-hidden">
+      {/* S급 디테일: 배경의 은은한 네온 글로우 */}
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/10 blur-[100px] rounded-full pointer-events-none" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-900/10 blur-[100px] rounded-full pointer-events-none" />
+
       {step === 'lobby' ? (
-        <div className="text-center max-w-md w-full space-y-8">
-          <div className="space-y-2">
-            <h1 className="text-5xl font-extrabold tracking-tighter">WE US</h1>
-            <p className="text-gray-400">우리가 되어가는 3분의 시간</p>
+        <div className="text-center max-w-md w-full space-y-10 z-10">
+          <div className="space-y-3">
+            <h1 className="text-5xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-500 drop-shadow-lg">
+              WE US.
+            </h1>
+            <p className="text-gray-400 font-light tracking-widest text-sm">우리가 되어가는 3분의 시간</p>
           </div>
           
-          <div className="bg-gray-800 p-6 rounded-xl border border-gray-700 space-y-4">
-            <div className="flex flex-col text-left">
-              <label className="text-sm text-gray-400 mb-1 font-bold">🌐 대화 언어</label>
+          <div className="bg-white/[0.03] backdrop-blur-xl p-8 rounded-3xl border border-white/5 space-y-6 shadow-2xl">
+            <div className="flex flex-col text-left space-y-2">
+              <label className="text-xs text-gray-400 uppercase tracking-widest font-semibold">언어 선택</label>
               <select 
                 value={selectedLang} 
                 onChange={(e) => setSelectedLang(e.target.value)}
-                className="bg-gray-900 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 outline-none cursor-pointer"
+                className="bg-black/40 border border-white/10 text-white text-sm rounded-xl focus:ring-1 focus:ring-white/30 focus:border-white/30 block w-full p-3.5 outline-none cursor-pointer appearance-none transition-all"
               >
-                <option value="한국어">한국어 (Korean)</option>
-                <option value="영어">영어 (English)</option>
-                <option value="일본어">일본어 (Japanese)</option>
-                <option value="프랑스어">프랑스어 (French)</option>
+                <option value="한국어">🇰🇷 한국어 (Korean)</option>
+                <option value="영어">🇺🇸 영어 (English)</option>
+                <option value="일본어">🇯🇵 일본어 (Japanese)</option>
+                <option value="프랑스어">🇫🇷 프랑스어 (French)</option>
               </select>
             </div>
 
-            <div className="flex flex-col text-left">
-              <label className="text-sm text-gray-400 mb-1 font-bold">🎭 대화 주제</label>
+            <div className="flex flex-col text-left space-y-2">
+              <label className="text-xs text-gray-400 uppercase tracking-widest font-semibold">대화 주제</label>
               <select 
                 value={selectedTopic} 
                 onChange={(e) => setSelectedTopic(e.target.value)}
-                className="bg-gray-900 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 outline-none cursor-pointer"
+                className="bg-black/40 border border-white/10 text-white text-sm rounded-xl focus:ring-1 focus:ring-white/30 focus:border-white/30 block w-full p-3.5 outline-none cursor-pointer appearance-none transition-all"
               >
-                <option value="일상 대화">☕ 일상 대화 (Daily)</option>
-                <option value="영화/문화">🍿 영화/문화 (Culture)</option>
-                <option value="극단적 밸런스게임">⚖️ 극단적 밸런스게임</option>
-                <option value="상황극: 알바생과 진상손님">🤬 상황극: 알바생과 진상손님</option>
+                <option value="일상 대화">☕ 편안한 일상 대화</option>
+                <option value="영화/문화">🍿 영화와 문화</option>
+                <option value="극단적 밸런스게임">⚖️ 극단적 취향 전투장 (VS)</option>
+                <option value="상황극: 알바생과 진상손님">🤬 알바생과 진상손님 방어전</option>
               </select>
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-4">
             <button 
               onClick={() => {
                 setIsSingleMode(false);
                 setStep('waiting');
                 socketRef.current?.emit('join_queue', { lang: selectedLang, topic: selectedTopic }); 
               }}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition-all shadow-lg shadow-blue-600/30"
+              className="w-full bg-white text-black font-extrabold tracking-wide py-4 rounded-xl hover:bg-gray-200 transition-all shadow-[0_0_20px_rgba(255,255,255,0.1)]"
             >
-              낯선 사람과 대화하기 (멀티)
+              익명 매칭 시작하기
             </button>
             <button 
               onClick={() => {
                 setIsSingleMode(true);
                 socketRef.current?.emit('start_ai_chat', selectedLang); 
               }}
-              className="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg transition-all border border-gray-600"
+              className="w-full bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-4 rounded-xl border border-white/10 transition-all"
             >
-              싱글 모드 (연습하기)
+              AI와 먼저 연습하기
             </button>
           </div>
         </div>
       ) : step === 'waiting' ? (
-        <div className="text-center space-y-4">
-          <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-blue-500 mx-auto"></div>
-          <p className="text-xl font-bold text-gray-200">누군가를 기다리고 있어요...</p>
-          <p className="text-sm text-blue-400 bg-blue-900/30 py-1 px-3 rounded-full inline-block border border-blue-800">
-            {selectedLang} / {selectedTopic}
-          </p>
-          {/* ★ 대기열 취소 버튼 */}
-          <button onClick={() => setStep('lobby')} className="mt-8 text-sm text-gray-400 hover:text-white underline">
-            대기 취소하기
-          </button>
+        <div className="text-center space-y-6 z-10">
+          <div className="relative w-20 h-20 mx-auto">
+            <div className="absolute inset-0 border-2 border-white/20 rounded-full"></div>
+            <div className="absolute inset-0 border-2 border-white rounded-full border-t-transparent animate-spin"></div>
+          </div>
+          <p className="text-xl font-light text-white tracking-wider">상대방을 찾는 중...</p>
+          <div className="inline-block px-4 py-1.5 rounded-full border border-white/10 bg-white/5 backdrop-blur-sm">
+            <p className="text-sm text-white/60">
+              {selectedLang} <span className="mx-2">•</span> {selectedTopic}
+            </p>
+          </div>
+          <div className="pt-8">
+            <button onClick={() => setStep('lobby')} className="text-sm text-white/30 hover:text-white/80 underline tracking-widest transition-colors">
+              취소
+            </button>
+          </div>
         </div>
       ) : (
-        <div className="w-full max-w-md h-[80vh] bg-gray-800 rounded-xl flex flex-col shadow-2xl overflow-hidden border border-gray-700 relative">
+        <div className="w-full max-w-lg h-[85vh] bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative z-10">
           
           {showAd && (
             <div className="absolute inset-0 bg-black/95 flex flex-col items-center justify-center z-[60] p-4 backdrop-blur-md">
-              <div className="w-full max-w-sm bg-gray-900 rounded-2xl overflow-hidden border border-gray-700 shadow-2xl flex flex-col animate-fade-in-up">
-                <div className="p-2 bg-gray-950 text-[10px] text-gray-500 text-right">Sponsored Advertisement</div>
-                <div className="h-56 bg-gradient-to-br from-pink-500 via-red-500 to-yellow-500 flex flex-col items-center justify-center p-6 text-center relative overflow-hidden">
-                  <div className="absolute inset-0 bg-black/20"></div>
-                  <h3 className="text-2xl font-black text-white mb-2 z-10 drop-shadow-md">광고 없는 무제한 대화!</h3>
-                  <p className="text-white/90 text-sm z-10 font-bold">WE US 프리미엄 패스 출시 🎉</p>
-                  <button className="mt-4 bg-white text-red-500 px-6 py-2 rounded-full font-black text-sm z-10 shadow-lg hover:scale-105 transition-transform">
-                    지금 확인하기
-                  </button>
+              <div className="w-full max-w-sm bg-gray-900 rounded-2xl overflow-hidden border border-gray-700 shadow-2xl flex flex-col">
+                <div className="p-2 bg-gray-950 text-[10px] text-gray-500 text-right">Sponsored</div>
+                <div className="h-56 bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex flex-col items-center justify-center p-6 text-center relative">
+                  <h3 className="text-2xl font-black text-white mb-2 z-10">분석을 완료하는 중...</h3>
+                  <p className="text-white/90 text-sm z-10 font-medium">WE US 프리미엄 패스를 확인해보세요</p>
                 </div>
                 <div className="p-4 flex justify-between items-center bg-gray-900 border-t border-gray-800">
                   <span className="text-xs text-gray-400 font-bold">
-                    {adCountdown > 0 ? `AI 분석 중...` : '리포트가 준비되었습니다!'}
+                    {adCountdown > 0 ? `AI 분석 중...` : '리포트 준비 완료!'}
                   </span>
                   <button
                     onClick={() => setShowAd(false)}
                     disabled={adCountdown > 0}
-                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all shadow-md ${
-                      adCountdown > 0 ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-500 animate-pulse'
+                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
+                      adCountdown > 0 ? 'bg-gray-800 text-gray-500' : 'bg-white text-black hover:bg-gray-200'
                     }`}
                   >
                     {adCountdown > 0 ? `${adCountdown}초 후 건너뛰기` : '결과 보기 ▶'}
@@ -289,76 +295,76 @@ export default function WeUsApp() {
           )}
 
           {isAnalyzing && !showAd && !reportData && (
-            <div className="absolute inset-0 bg-gray-900/90 flex flex-col items-center justify-center z-40 backdrop-blur-sm">
-              <div className="animate-spin rounded-full h-16 w-16 border-t-4 border-purple-500 mb-4"></div>
-              <p className="text-purple-400 font-bold animate-pulse">
-                {isSingleMode ? 'AI가 대화 실력을 정리 중입니다...' : 'AI가 그룹 케미를 분석 중입니다...'}
+            <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center z-40 backdrop-blur-md">
+              <div className="w-12 h-12 border-2 border-white/20 border-t-white rounded-full animate-spin mb-6"></div>
+              <p className="text-white font-light tracking-widest">
+                {isSingleMode ? 'AI가 대화 흐름을 분석하고 있습니다...' : '두 사람의 케미를 분석하고 있습니다...'}
               </p>
             </div>
           )}
 
           {reportData && !showAd && (
-            <div className="absolute inset-0 bg-gray-900/95 flex flex-col items-center justify-center z-50 p-6 backdrop-blur-md">
-              <div className="bg-gray-800 border-2 border-purple-500 rounded-2xl p-6 w-full max-w-sm shadow-[0_0_30px_rgba(168,85,247,0.3)] flex flex-col animate-fade-in-up">
-                <h2 className="text-2xl font-extrabold text-center mb-6 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-blue-400">
-                  {isSingleMode ? '📊 AI 피드백 리포트' : '📊 WE US 그룹 리포트'}
+            <div className="absolute inset-0 bg-[#050505]/95 flex flex-col items-center justify-center z-50 p-6 backdrop-blur-xl">
+              <div className="bg-white/[0.02] border border-white/10 rounded-3xl p-8 w-full max-w-sm shadow-2xl flex flex-col">
+                <h2 className="text-xl font-light tracking-widest text-center mb-8 text-white">
+                  {isSingleMode ? 'PERSONAL REPORT' : 'CHEMISTRY REPORT'}
                 </h2>
-                <div className="space-y-4 text-sm text-gray-200 whitespace-pre-line leading-relaxed flex-1">
+                <div className="space-y-4 text-sm text-gray-300 whitespace-pre-line leading-relaxed flex-1 bg-black/40 p-6 rounded-2xl border border-white/5">
                   {reportData}
                 </div>
-                
-                {/* ★ 공유하기 및 닫기 버튼 */}
-                <div className="mt-8 flex gap-2">
+                <div className="mt-8 flex gap-3">
                   <button
                     onClick={handleShare}
-                    className="flex-1 bg-gradient-to-r from-pink-500 to-orange-400 hover:from-pink-600 hover:to-orange-500 text-white font-bold py-3 rounded-lg transition shadow-lg flex items-center justify-center gap-2"
+                    className="flex-1 bg-white text-black font-bold tracking-wide py-3.5 rounded-xl hover:bg-gray-200 transition"
                   >
-                    🚀 친구에게 자랑하기
+                    공유하기
                   </button>
                   <button
                     onClick={() => {
                       setReportData(null);
                       setStep('lobby');
                     }}
-                    className="w-1/3 bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 rounded-lg transition border border-gray-600"
+                    className="px-6 bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-3.5 rounded-xl border border-white/10 transition"
                   >
-                    로비로
+                    로비
                   </button>
                 </div>
               </div>
             </div>
           )}
 
-          <div className="bg-gray-950 p-4 flex justify-between items-center border-b border-gray-700">
-            <div className="flex flex-col">
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-sm truncate">
-                  {isSingleMode ? `싱글 모드: ${selectedLang}` : `주제: ${selectedTopic}`}
+          <div className="bg-white/[0.02] p-5 flex justify-between items-center border-b border-white/5">
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="font-semibold text-sm text-white/90 truncate">
+                  {isSingleMode ? `AI 싱글 모드` : `${selectedTopic}`}
                 </span>
-                {/* ★ 채팅방 나가기 버튼 */}
                 <button 
                   onClick={leaveRoom}
-                  className="bg-red-900/50 hover:bg-red-600 text-red-400 hover:text-white border border-red-800 text-[10px] px-2 py-1 rounded transition-colors"
+                  className="bg-white/5 hover:bg-red-500/20 text-white/50 hover:text-red-400 text-[10px] px-2.5 py-1 rounded-full transition-colors border border-transparent hover:border-red-500/30"
                 >
                   나가기
                 </button>
               </div>
-              {!isSingleMode && <span className="text-xs text-gray-400 mt-1">현재 인원: {participantCount}명</span>}
+              {!isSingleMode && <span className="text-xs text-white/40 tracking-wider">참여 인원: {participantCount}명</span>}
             </div>
-            <span className={`font-mono text-xl shrink-0 ${timeLeft < 60 ? 'text-red-500 animate-pulse' : 'text-green-400'}`}>
-              {formatTime(timeLeft)}
-            </span>
+            <div className={`px-3 py-1 rounded-full border ${timeLeft < 60 ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-white/5 border-white/10 text-white/80'}`}>
+              <span className="font-mono text-sm tracking-wider font-medium">
+                {formatTime(timeLeft)}
+              </span>
+            </div>
           </div>
 
-          <div className="flex-1 p-4 overflow-y-auto space-y-3 pb-20">
+          <div className="flex-1 p-5 overflow-y-auto space-y-4 pb-24">
             {messages.map((msg, idx) => (
               <div key={idx} className={`flex ${msg.sender === '나' ? 'justify-end' : msg.sender === 'System' ? 'justify-center' : 'justify-start'}`}>
-                <div className={`max-w-[85%] p-3 rounded-lg text-sm ${
-                  msg.sender === '나' ? 'bg-blue-600 text-white' : 
-                  msg.sender === 'System' ? 'bg-gray-700/50 text-gray-300 text-center border border-gray-600' :
-                  msg.sender === 'AI 🤖' || msg.sender === 'AI' ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-200'
+                <div className={`max-w-[80%] p-3.5 rounded-2xl text-[15px] leading-relaxed ${
+                  msg.sender === '나' ? 'bg-white text-black rounded-tr-sm' : 
+                  msg.sender === 'System' ? 'bg-transparent text-white/40 text-xs border border-white/10 rounded-full px-5 py-2 text-center' :
+                  msg.sender === 'AI 🤖' || msg.sender === 'AI' ? 'bg-indigo-600/20 border border-indigo-500/30 text-indigo-100 rounded-tl-sm' : 'bg-white/10 text-white rounded-tl-sm'
                 }`}>
-                  {msg.sender !== 'System' && <span className="text-xs opacity-70 block mb-1 font-bold text-gray-300">{msg.sender}</span>}
+                  {msg.sender !== 'System' && <span className={`text-[11px] block mb-1 font-bold ${msg.sender === '나' ? 'text-gray-500' : 'text-white/40'}`}>{msg.sender}</span>}
                   <span>{msg.text}</span>
                 </div>
               </div>
@@ -366,38 +372,38 @@ export default function WeUsApp() {
           </div>
 
           {timeLeft <= 60 && !isSingleMode && !isAnalyzing && !reportData && extensionCount < 2 && !showAd && (
-            <div className="absolute bottom-[68px] left-0 w-full p-2 bg-gray-900/90 backdrop-blur-sm border-t border-gray-700 flex flex-col items-center justify-center animate-fade-in-up">
+            <div className="absolute bottom-[80px] left-0 w-full p-3 bg-gradient-to-t from-[#0a0a0a] to-transparent flex flex-col items-center justify-center">
               <button
                 onClick={() => {
                   setHasVoted(true);
                   socketRef.current?.emit('vote_extend', { room });
                 }}
                 disabled={hasVoted}
-                className={`px-6 py-2 rounded-full font-bold text-sm shadow-lg transition-all ${
-                  hasVoted ? 'bg-gray-600 text-gray-300 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500 text-white animate-bounce'
+                className={`px-6 py-2.5 rounded-full font-bold text-sm shadow-lg transition-all border ${
+                  hasVoted ? 'bg-white/5 border-white/10 text-white/30 cursor-not-allowed' : 'bg-emerald-500/20 border-emerald-500/50 hover:bg-emerald-500/30 text-emerald-300'
                 }`}
               >
-                {hasVoted ? `동의 대기중... ${voteStatus}` : `⏱️ 2분 연장하기 (${extensionCount}/2)`}
+                {hasVoted ? `동의 대기중 ${voteStatus}` : `+ 2분 연장하기 (${extensionCount}/2)`}
               </button>
               {partnerVoted && !hasVoted && (
-                <span className="mt-2 text-xs text-green-400 font-bold animate-pulse">
-                  🔥 누군가 연장을 원해요! {voteStatus}
+                <span className="mt-2 text-[11px] text-emerald-400/80 font-medium tracking-wide">
+                  상대방이 시간 연장을 원합니다.
                 </span>
               )}
             </div>
           )}
 
-          <form onSubmit={sendMessage} className="p-3 bg-gray-900 border-t border-gray-700 flex gap-2 z-10 relative">
+          <form onSubmit={sendMessage} className="p-4 bg-[#050505] border-t border-white/5 flex gap-2 z-10 relative">
             <input 
               type="text" 
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               disabled={isAnalyzing || !!reportData || showAd} 
-              placeholder="메시지를 입력하세요..." 
-              className="flex-1 bg-gray-800 text-white px-4 py-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              placeholder="메시지 입력..." 
+              className="flex-1 bg-white/5 text-white px-5 py-3.5 rounded-full outline-none focus:bg-white/10 transition-colors disabled:opacity-50 text-sm placeholder:text-white/20 border border-transparent focus:border-white/10"
             />
-            <button type="submit" disabled={isAnalyzing || !!reportData || showAd} className="bg-blue-600 px-4 py-2 rounded-lg font-bold hover:bg-blue-700 whitespace-nowrap disabled:opacity-50">
-              전송
+            <button type="submit" disabled={isAnalyzing || !!reportData || showAd} className="bg-white text-black w-12 h-12 rounded-full flex items-center justify-center font-bold hover:bg-gray-200 disabled:opacity-50 transition-colors shrink-0">
+              ↑
             </button>
           </form>
         </div>
