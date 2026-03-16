@@ -17,13 +17,11 @@ mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log("🍃 MongoDB 연결 성공! 대화 기록이 영구 저장됩니다."))
   .catch(err => console.error("❌ DB 연결 실패:", err));
 
-// 다중 유저 ID 저장을 위한 배열 추가
 const ReportSchema = new mongoose.Schema({
   roomName: String,
   userIds: [String], 
   type: String, 
-  lang: String,
-  topic: String,
+  topic: String, // lang 대신 통합 topic 활용
   participants: Number,
   fullLog: [String],
   aiReport: String,
@@ -38,7 +36,7 @@ const matchTimers = {};
 const roomVotes = {};     
 const activeRooms = {};   
 
-// --- [3. AI 통신 엔진 (Gemma 3중 루프 원상 복구)] ---
+// --- [3. AI 통신 엔진 (Gemma 3중 루프 유지! 절대 건드리지 않음)] ---
 async function getGoogleAIResponse(systemPrompt, history, maxTokens = 150) {
   const modelsToTry = [
     "gemma-3-12b-it", // 속도와 성능 밸런스 1순위
@@ -76,6 +74,44 @@ async function getGoogleAIResponse(systemPrompt, history, maxTokens = 150) {
   return "네트워크가 불안정하여 AI가 답변을 고민하고 있습니다.";
 }
 
+// ★ [핵심 혁신] 다중 페르소나 시스템 프롬프트 생성기
+function getPersonaPrompt(topic, isReport = false) {
+  // 1. 리포트(성적표) 발급용 프롬프트 분기
+  if (isReport) {
+    if (['한국어', '영어', '일본어', '프랑스어'].includes(topic)) {
+      return `사용자가 AI와 진행한 '${topic}' 어학 기록입니다. 언어 전문가의 시선으로 1. 종합 성취도(100점 만점) 2. 대화의 강점(1줄) 3. 성장을 위한 조언(1줄)을 작성하세요.`;
+    } else if (['진상손님 방어전 (알바생)', '압박 면접 (지원자)'].includes(topic)) {
+      return `사용자의 롤플레잉 대화 기록입니다. 1. 위기 대처 능력(100점 만점) 2. 멘탈 방어력 평가(1줄) 3. AI의 냉정한 피드백(1줄)을 작성하세요.`;
+    } else {
+      return `익명 참가자(또는 AI와 유저)들이 나눈 살롱 대화 기록입니다. 1. 대화 밀도(100점 만점) 2. 핵심 키워드(#해시태그 3개) 3. 총평(통찰력 있는 1줄)을 작성하세요.`;
+    }
+  }
+
+  // 2. 실시간 대화용 페르소나 프롬프트 분기
+  switch(topic) {
+    case '한국어': case '영어': case '일본어': case '프랑스어':
+      return `당신은 최고 수준의 '${topic}' 원어민 튜터입니다. 사용자의 언어 학습을 돕고 지적인 대화를 이끌어주세요. 어색한 표현이 있다면 대화 끝에 '[💡 교정: 올바른 표현]'을 부드럽게 추가하세요.`;
+    
+    case '최악의 이불킥 경험':
+      return `당신은 심리 상담가이자 우아한 대화 모더레이터입니다. 사용자의 부끄러운 경험을 경청하고 인간적인 공감과 함께 유쾌하게 분위기를 풀어주세요.`;
+    
+    case '자본주의 생존기':
+      return `당신은 자본주의 시스템과 권력 구조의 이면을 꿰뚫어 보는 날카로운 지식인입니다. 현대 사회의 부조리와 돈의 논리에 대해 깊이 있고 도발적인 질문을 던지며 토론을 이끌어주세요.`;
+    
+    case '100억 받기 VS 무병장수':
+      return `당신은 토론의 '악마의 대변인'입니다. 사용자가 100억을 고르면 무병장수의 가치로 공격하고, 무병장수를 고르면 100억이 주는 권력과 자유를 무기로 무자비하게 반박하세요.`;
+    
+    case '진상손님 방어전 (알바생)':
+      return `당신은 극악무도하고 논리가 통하지 않는 진상 손님입니다. 사용자는 알바생입니다. 말도 안 되는 이유로 환불이나 서비스를 요구하며 사용자의 멘탈을 흔드세요. 절대 쉽게 물러서지 마세요.`;
+    
+    case '압박 면접 (지원자)':
+      return `당신은 피도 눈물도 없는 대기업의 수석 면접관입니다. 사용자는 지원자입니다. 사용자의 답변에 꼬리를 물고, 구조적인 허점을 파고드는 날카롭고 차가운 압박 질문만 던지세요.`;
+    
+    default:
+      return `당신은 수준 높은 살롱(Salon)의 대화 파트너입니다. 깊이 있고 흥미로운 대화를 이끌어주세요.`;
+  }
+}
+
 // --- [4. 매칭 및 방 생성 로직] ---
 function startGroupRoom(queueKey) {
   const users = waitingQueues[queueKey].splice(0, 4); 
@@ -92,7 +128,6 @@ function startGroupRoom(queueKey) {
     extensionCount: 0, 
     participants: users.length, 
     isGeneratingReport: false,
-    lang: queueKey.split('_')[0],
     topic: queueKey.split('_')[1],
     userIds: new Set()
   };
@@ -112,7 +147,7 @@ function startGroupRoom(queueKey) {
 io.on('connection', (socket) => {
   
   socket.on('join_queue', (data) => {
-    const lang = data?.lang || '한국어';
+    const lang = data?.lang || '공통';
     const topic = data?.topic || '일상 대화';
     const queueKey = `${lang}_${topic}`; 
 
@@ -130,24 +165,30 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('start_ai_chat', (lang) => {
+  socket.on('start_ai_chat', (topic) => {
     const roomId = `ai_${socket.id}_${Date.now()}`;
     socket.join(roomId);
     socket.userAlias = '나';
     
     activeRooms[roomId] = { 
       type: 'single', 
-      lang: lang, 
-      topic: 'AI 연습', 
+      topic: topic, // 프론트에서 넘겨준 주제 저장
       history: [], 
       isGeneratingReport: false,
       userIds: new Set() 
     };
-    socket.emit('matched', { roomId: roomId, partner: `수석 ${lang} 튜터`, participantCount: 2 });
     
-    const welcomeMsg = `환영합니다. 저는 당신의 ${lang} 회화 파트너입니다. 어떤 주제든 편하게 말씀해 주시면, 자연스러운 대화와 함께 필요한 교정을 도와드리겠습니다.`;
-    socket.emit('receive_message', { sender: 'AI 🤖', text: welcomeMsg });
-    activeRooms[roomId].history.push({ role: 'assistant', content: welcomeMsg });
+    // 파트너 이름 동적 설정
+    let partnerName = '대화 파트너';
+    if (['한국어', '영어', '일본어', '프랑스어'].includes(topic)) partnerName = `수석 ${topic} 튜터`;
+    else if (topic === '진상손님 방어전 (알바생)') partnerName = '진상 손님 🤬';
+    else if (topic === '압박 면접 (지원자)') partnerName = '수석 면접관 👔';
+    else partnerName = '살롱 모더레이터 🍷';
+
+    socket.emit('matched', { roomId: roomId, partner: partnerName, participantCount: 2 });
+    
+    const welcomeMsg = `[시스템] '${topic}' 모드가 시작되었습니다. 먼저 대화를 건네보세요!`;
+    socket.emit('receive_message', { sender: 'System', text: welcomeMsg });
   });
 
   socket.on('send_message', async (data) => {
@@ -160,21 +201,26 @@ io.on('connection', (socket) => {
     } 
     else if (roomData.type === 'single') {
       roomData.history.push({ role: 'user', content: data.text }); 
-      const systemPrompt = `당신은 최고 수준의 '${roomData.lang}' 원어민 튜터입니다. 사용자의 언어 학습을 돕고, 지적이고 자연스러운 대화를 이끌어주세요. 만약 문법이나 표현이 어색하다면 대화 끝에 '[💡 교정: 올바른 표현]' 형식으로 부드럽게 피드백을 추가하세요.`;
       
+      // ★ 동적 시스템 프롬프트 불러오기
+      const systemPrompt = getPersonaPrompt(roomData.topic, false);
       const aiReply = await getGoogleAIResponse(systemPrompt, roomData.history.slice(-8), 150);
+      
       roomData.history.push({ role: 'assistant', content: aiReply }); 
       socket.emit('receive_message', { sender: 'AI 🤖', text: aiReply });
     }
   });
 
   socket.on('request_ai_help', async (data) => {
+    const roomData = activeRooms[data.room];
+    if (!roomData) return;
+
     const chatHistory = data.history.slice(-5).map(msg => ({
       role: msg.sender === '나' || msg.sender.includes('익명') ? 'user' : 'assistant',
       content: `${msg.sender}: ${msg.text}`
     }));
     
-    const systemPrompt = `당신은 수준 높은 살롱(Salon)의 '대화 모더레이터'입니다. 참가자들 사이에 10초간 정적이 흘렀습니다. 앞선 대화 문맥을 파악하여, 대화가 다시 자연스럽게 이어질 수 있도록 깊이 있고 생각할 거리를 던지는 부드러운 질문을 하나만 던지세요. 50자 이내로 정중하게 작성하세요.`;
+    const systemPrompt = `당신은 '${roomData.topic}' 주제의 대화 모더레이터입니다. 참가자들 사이에 10초간 정적이 흘렀습니다. 앞선 대화 문맥을 파악하여 50자 이내로 예리하게 정적을 깨는 질문을 던지세요.`;
     const aiMessage = await getGoogleAIResponse(systemPrompt, chatHistory, 100);
     
     if (!aiMessage.includes("불안정하여")) {
@@ -191,23 +237,14 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (data.userId) {
-      roomData.userIds.add(data.userId);
-    }
-
+    if (data.userId) roomData.userIds.add(data.userId);
     if (roomData.isGeneratingReport) return; 
     roomData.isGeneratingReport = true; 
 
-    let systemPrompt = "";
-    let conversationText = "";
-
-    if (roomData.type === 'single') {
-      systemPrompt = `사용자가 AI와 진행한 '${roomData.lang}' 어학 및 소통 기록입니다. 언어/커뮤니케이션 전문가의 시선으로 다음 형식에 맞춰 분석 리포트를 작성하세요.\n\n[퍼스널 커뮤니케이션 분석]\n1. 종합 성취도: (100점 만점)\n2. 대화의 강점: (문법, 어휘, 표현력 등 뛰어난 점 1줄)\n3. 성장을 위한 조언: (더 자연스러운 소통을 위한 팁 1줄)`;
-      conversationText = roomData.history.map(msg => `${msg.role === 'user' ? '나' : 'AI'}: ${msg.content}`).join('\n');
-    } else {
-      systemPrompt = `익명 참가자들이 나눈 대화 기록입니다. 전문 모더레이터의 시선으로 다음 형식에 맞춰 그룹 케미스트리 리포트를 작성하세요.\n\n[그룹 케미스트리 분석]\n1. 대화 밀도: (100점 만점 - 티키타카 및 깊이 평가)\n2. 대화의 핵심 키워드: (#해시태그 3개)\n3. 모더레이터의 총평: (대화의 흐름과 참가자들의 시너지에 대한 우아하고 통찰력 있는 한줄평)`;
-      conversationText = roomData.history.join('\n');
-    }
+    const systemPrompt = getPersonaPrompt(roomData.topic, true);
+    const conversationText = roomData.type === 'single' 
+      ? roomData.history.map(msg => `${msg.role === 'user' ? '나' : 'AI'}: ${msg.content}`).join('\n')
+      : roomData.history.join('\n');
 
     const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 200);
     
@@ -217,13 +254,11 @@ io.on('connection', (socket) => {
           roomName: data.room,
           userIds: Array.from(roomData.userIds), 
           type: roomData.type,
-          lang: roomData.lang || '알 수 없음',
           topic: roomData.topic || '알 수 없음',
           participants: roomData.participants || 2,
           fullLog: roomData.type === 'single' ? roomData.history.map(m => m.content) : roomData.history,
           aiReport: reportContent
         });
-        console.log(`✅ ${data.room} DB 저장 완료! (참여 유저 ID: ${Array.from(roomData.userIds).join(', ')})`);
       }
     } catch (dbError) {
       console.error("🔥 DB 저장 실패:", dbError);
@@ -273,7 +308,7 @@ io.on('connection', (socket) => {
     socket.leave(room);
 
     if (roomData.type === 'multi') {
-      socket.to(room).emit('receive_message', { sender: 'System', text: `${socket.userAlias} 님이 대화방을 정중히 퇴장하셨습니다.` });
+      socket.to(room).emit('receive_message', { sender: 'System', text: `${socket.userAlias} 님이 퇴장하셨습니다.` });
       if (roomVotes[room]) roomVotes[room].delete(socket.id);
       
       roomData.participants -= 1;
