@@ -6,6 +6,11 @@ import { io, Socket } from 'socket.io-client';
 const SERVER_URL = 'https://we-us-backend.onrender.com';
 
 export default function WeUsApp() {
+  // ★ 탭 및 유저 식별 상태
+  const [activeTab, setActiveTab] = useState<'lobby' | 'myRecord'>('lobby');
+  const [userId, setUserId] = useState<string>('');
+  const [myReports, setMyReports] = useState<any[]>([]); // 추후 DB에서 불러올 내 기록들
+
   const [step, setStep] = useState<'lobby' | 'waiting' | 'chat'>('lobby');
   const [timeLeft, setTimeLeft] = useState(180); 
   const [messages, setMessages] = useState<{ sender: string; text: string }[]>([]);
@@ -33,10 +38,21 @@ export default function WeUsApp() {
   const lastInteractionTime = useRef<number>(Date.now());
   const messagesRef = useRef(messages);
 
+  // ★ 1. 기기 고유 ID(UUID) 발급 로직
+  useEffect(() => {
+    let storedId = localStorage.getItem('weus_user_id');
+    if (!storedId) {
+      storedId = 'user_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+      localStorage.setItem('weus_user_id', storedId);
+    }
+    setUserId(storedId);
+  }, []);
+
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
+  // ★ 2. 소켓 통신 로직
   useEffect(() => {
     socketRef.current = io(SERVER_URL);
 
@@ -105,6 +121,7 @@ export default function WeUsApp() {
     return () => { socketRef.current?.disconnect(); };
   }, [selectedLang, selectedTopic, isAnalyzing, reportData, showAd]);
 
+  // ★ 3. 타이머 및 AI 상태 관리
   useEffect(() => {
     if (step !== 'chat' || timeLeft <= 0 || isAnalyzing || reportData || showAd) return;
     const timer = setInterval(() => {
@@ -114,14 +131,15 @@ export default function WeUsApp() {
           setIsAnalyzing(true);
           setShowAd(true);        
           setAdCountdown(3);      
-          socketRef.current?.emit('request_chemistry_report', { room }); 
+          // 여기서 userId도 같이 보내서 DB에 누구 건지 기록하게 만들 예정
+          socketRef.current?.emit('request_chemistry_report', { room, userId }); 
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [step, timeLeft, room, isAnalyzing, reportData, showAd]);
+  }, [step, timeLeft, room, isAnalyzing, reportData, showAd, userId]);
 
   useEffect(() => {
     if (!showAd || adCountdown <= 0) return;
@@ -186,7 +204,47 @@ export default function WeUsApp() {
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/10 blur-[100px] rounded-full pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-900/10 blur-[100px] rounded-full pointer-events-none" />
 
-      {step === 'lobby' ? (
+      {/* ============================== */}
+      {/* [1] 마이페이지 (RECORD 탭) 화면 */}
+      {/* ============================== */}
+      {step === 'lobby' && activeTab === 'myRecord' && (
+        <div className="w-full max-w-lg h-[85vh] bg-white/[0.02] backdrop-blur-xl border border-white/10 rounded-3xl p-6 flex flex-col z-10 shadow-2xl relative">
+          <h2 className="text-2xl font-light tracking-widest text-white mb-2">MY RECORD</h2>
+          <p className="text-xs text-white/40 mb-6 font-mono">ID: {userId}</p>
+          
+          <div className="flex-1 overflow-y-auto space-y-4 pb-20">
+            {/* 임시 데이터 (나중에 백엔드와 연결하여 렌더링) */}
+            <div className="bg-black/40 p-5 rounded-2xl border border-white/5">
+              <div className="flex justify-between items-center mb-3">
+                <span className="text-xs text-emerald-400 font-bold tracking-wider">AI 싱글 모드 (영어)</span>
+                <span className="text-[10px] text-white/30">방금 전</span>
+              </div>
+              <p className="text-sm text-gray-300 leading-relaxed line-clamp-3">
+                [종합 성취도: 85점] 대화의 강점: 시제 표현이 매우 정확합니다. 성장을 위한 조언: 감정 표현 형용사를 더 다양하게 써보세요.
+              </p>
+            </div>
+
+            <div className="bg-black/40 p-5 rounded-2xl border border-white/5">
+              <div className="flex justify-between items-center mb-3">
+                <span className="text-xs text-blue-400 font-bold tracking-wider">극단적 취향 전투장</span>
+                <span className="text-[10px] text-white/30">어제</span>
+              </div>
+              <p className="text-sm text-gray-300 leading-relaxed line-clamp-3">
+                [대화 밀도: 92점] 팩트폭격기 성향이 강합니다. 날카로운 논리로 대화를 주도했습니다.
+              </p>
+            </div>
+            
+            <div className="text-center pt-10">
+              <p className="text-sm text-white/30">곧 실제 대화 기록이 이곳에 누적됩니다.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================== */}
+      {/* [2] 로비 화면 (LOBBY 탭) */}
+      {/* ============================== */}
+      {step === 'lobby' && activeTab === 'lobby' && (
         <div className="text-center max-w-md w-full space-y-10 z-10">
           <div className="space-y-3">
             <h1 className="text-5xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-500 drop-shadow-lg">
@@ -247,7 +305,32 @@ export default function WeUsApp() {
             </button>
           </div>
         </div>
-      ) : step === 'waiting' ? (
+      )}
+
+      {/* ============================== */}
+      {/* [3] 하단 네비게이션 탭 (로비 화면일 때만 노출) */}
+      {/* ============================== */}
+      {step === 'lobby' && (
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center bg-black/60 backdrop-blur-xl border border-white/10 rounded-full p-1.5 z-20 shadow-2xl">
+          <button 
+            onClick={() => setActiveTab('lobby')}
+            className={`px-8 py-3 rounded-full text-sm font-bold tracking-widest transition-all ${activeTab === 'lobby' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}
+          >
+            LOBBY
+          </button>
+          <button 
+            onClick={() => setActiveTab('myRecord')}
+            className={`px-8 py-3 rounded-full text-sm font-bold tracking-widest transition-all ${activeTab === 'myRecord' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}
+          >
+            RECORD
+          </button>
+        </div>
+      )}
+
+      {/* ============================== */}
+      {/* [4] 대기열 & 채팅방 화면 (기존과 동일) */}
+      {/* ============================== */}
+      {step === 'waiting' && (
         <div className="text-center space-y-6 z-10">
           <div className="relative w-20 h-20 mx-auto">
             <div className="absolute inset-0 border-2 border-white/20 rounded-full"></div>
@@ -265,7 +348,9 @@ export default function WeUsApp() {
             </button>
           </div>
         </div>
-      ) : (
+      )}
+
+      {step === 'chat' && (
         <div className="w-full max-w-lg h-[85vh] bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative z-10">
           
           {showAd && (
