@@ -42,11 +42,14 @@ export default function WeUsApp() {
   const [isConnecting, setIsConnecting] = useState(false); 
   const [isTyping, setIsTyping] = useState(false); 
 
+  // ★ 추가: 신고 모달 상태 관리
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportReason, setReportReason] = useState('');
+
   const socketRef = useRef<Socket | null>(null);
   const lastInteractionTime = useRef<number>(Date.now());
   const messagesRef = useRef(messages);
   
-  // ★ [핵심 픽스 1] 소켓이 끊기지 않도록, 변하는 상태값들을 Ref 주머니에 실시간 백업
   const stateRefs = useRef({ selectedTopic, isAnalyzing, reportData, showAd });
 
   useEffect(() => {
@@ -66,7 +69,6 @@ export default function WeUsApp() {
     messagesRef.current = messages;
   }, [messages]);
 
-  // ★ [핵심 픽스 2] 소켓 연결 로직의 의존성 배열을 빈칸([])으로 만들어 강제 종료 방지
   useEffect(() => {
     socketRef.current = io(SERVER_URL);
 
@@ -91,7 +93,6 @@ export default function WeUsApp() {
       setIsTyping(false); 
       
       const partnerName = data.partner || `총 ${data.participantCount}명`;
-      // Ref 주머니에서 안전하게 최신 주제를 꺼내옴
       setMessages([{ sender: 'System', text: `[${stateRefs.current.selectedTopic}] 주제로 ${partnerName}와 연결되었습니다.` }]);
       
       lastInteractionTime.current = Date.now();
@@ -105,7 +106,6 @@ export default function WeUsApp() {
     });
 
     socketRef.current.on('partner_left', () => {
-      // Ref 주머니에서 현재 상태를 확인하여 분석 중이 아닐 때만 튕김 처리
       const { isAnalyzing, reportData, showAd } = stateRefs.current;
       if (!isAnalyzing && !reportData && !showAd) {
         alert("남은 인원이 없어 방이 종료되었습니다.");
@@ -143,7 +143,7 @@ export default function WeUsApp() {
     });
 
     return () => { socketRef.current?.disconnect(); };
-  }, []); // <--- 이 부분이 핵심입니다. 빈 배열로 고정하여 절대 끊기지 않게 만듭니다.
+  }, []); 
 
   useEffect(() => {
     if (activeTab === 'myRecord' && userId && socketRef.current) {
@@ -197,8 +197,6 @@ export default function WeUsApp() {
     socketRef.current?.emit('send_message', { room: room, roomId: room, text: inputText });
     setInputText('');
     lastInteractionTime.current = Date.now();
-    
-    // ★ UX 개선: 내가 메시지를 보내면, 무조건 상대방(또는 AI)이 타이핑 중이라고 애니메이션을 띄움
     setIsTyping(true); 
   };
 
@@ -210,6 +208,28 @@ export default function WeUsApp() {
 
   const leaveRoom = () => {
     if (confirm("정말 대화방에서 나가시겠습니까?")) {
+      socketRef.current?.emit('leave_room', { room });
+      setStep('lobby');
+      setIsTyping(false);
+      setIsConnecting(false);
+    }
+  };
+
+  // ★ 추가: 신고 접수 및 방 탈출 로직
+  const handleReportSubmit = () => {
+    if (!reportReason) {
+      alert("신고 사유를 선택해 주세요.");
+      return;
+    }
+    if (confirm("상대방을 신고하고 대화방을 즉시 나가시겠습니까?")) {
+      // 서버로 신고 데이터 전송
+      socketRef.current?.emit('report_user', { room, reporterId: userId, reason: reportReason });
+      
+      alert("신고가 접수되었습니다. 철저히 검토하여 조치하겠습니다.");
+      setIsReportModalOpen(false);
+      setReportReason('');
+      
+      // 방 탈출
       socketRef.current?.emit('leave_room', { room });
       setStep('lobby');
       setIsTyping(false);
@@ -232,7 +252,6 @@ export default function WeUsApp() {
     }
   };
 
-  // 현재 선택된 카테고리의 옵션 리스트 찾기
   const currentOptions = LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.options || [];
 
   return (
@@ -281,14 +300,13 @@ export default function WeUsApp() {
             <p className="text-gray-400 font-light tracking-widest text-xs">우리가 되어가는 3분의 시간</p>
           </div>
           
-          {/* ★ 혁신 1. 로비 큐레이션 카드 UI */}
           <div className="grid grid-cols-3 gap-3">
             {LOBBY_CATEGORIES.map(cat => (
               <button
                 key={cat.id}
                 onClick={() => {
                   setSelectedCategory(cat.id);
-                  setSelectedTopic(cat.options[0]); // 첫 번째 옵션 자동 선택
+                  setSelectedTopic(cat.options[0]); 
                 }}
                 className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all border ${
                   selectedCategory === cat.id 
@@ -322,7 +340,7 @@ export default function WeUsApp() {
               <button 
                 disabled={isConnecting}
                 onClick={() => {
-                  setIsConnecting(true); // ★ 로딩 시작
+                  setIsConnecting(true); 
                   setIsSingleMode(false);
                   socketRef.current?.emit('join_queue', { lang: '공통', topic: selectedTopic }); 
                   setStep('waiting');
@@ -335,7 +353,7 @@ export default function WeUsApp() {
               <button 
                 disabled={isConnecting}
                 onClick={() => {
-                  setIsConnecting(true); // ★ 로딩 시작
+                  setIsConnecting(true); 
                   setIsSingleMode(true);
                   socketRef.current?.emit('start_ai_chat', selectedTopic); 
                 }}
@@ -387,6 +405,41 @@ export default function WeUsApp() {
       {step === 'chat' && (
         <div className="w-full max-w-lg h-[85vh] bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative z-10">
           
+          {/* ★ 추가: 신고 모달창 UI */}
+          {isReportModalOpen && (
+            <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-[70] p-6 backdrop-blur-sm">
+              <div className="w-full max-w-sm bg-gray-900 border border-white/10 rounded-2xl p-6 shadow-2xl flex flex-col">
+                <h3 className="text-lg font-bold text-red-400 mb-4 flex items-center gap-2">
+                  🚨 사용자 신고
+                </h3>
+                <p className="text-sm text-white/70 mb-4">건전한 대화 환경을 위해 불편했던 사유를 선택해 주세요. 신고 시 대화방은 즉시 종료됩니다.</p>
+                <div className="space-y-2 mb-6">
+                  {['욕설 및 비하', '음란성 발언', '광고 및 도배', '기타 사유'].map((reason) => (
+                    <button
+                      key={reason}
+                      onClick={() => setReportReason(reason)}
+                      className={`w-full text-left p-3 rounded-lg text-sm transition-all border ${
+                        reportReason === reason 
+                        ? 'bg-red-500/20 border-red-500 text-red-300' 
+                        : 'bg-white/5 border-transparent text-white/50 hover:bg-white/10'
+                      }`}
+                    >
+                      {reason}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setIsReportModalOpen(false)} className="flex-1 py-3 bg-white/5 text-white/70 rounded-xl text-sm font-bold hover:bg-white/10 transition-colors">
+                    취소
+                  </button>
+                  <button onClick={handleReportSubmit} className="flex-1 py-3 bg-red-600 text-white rounded-xl text-sm font-bold hover:bg-red-500 transition-colors">
+                    신고 및 나가기
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {showAd && (
             <div className="absolute inset-0 bg-black/95 flex flex-col items-center justify-center z-[60] p-4 backdrop-blur-md">
               <div className="w-full max-w-sm bg-gray-900 rounded-2xl overflow-hidden border border-gray-700 shadow-2xl flex flex-col">
@@ -457,12 +510,23 @@ export default function WeUsApp() {
                 <span className="font-semibold text-sm text-white/90 truncate">
                   {isSingleMode ? `AI 싱글: ${selectedTopic}` : `${selectedTopic}`}
                 </span>
-                <button 
-                  onClick={leaveRoom}
-                  className="bg-white/5 hover:bg-red-500/20 text-white/50 hover:text-red-400 text-[10px] px-2.5 py-1 rounded-full transition-colors border border-transparent hover:border-red-500/30"
-                >
-                  나가기
-                </button>
+                {/* ★ 추가: 기존 나가기 버튼 옆에 신고 버튼 병치 */}
+                <div className="flex items-center gap-1">
+                  {!isSingleMode && (
+                    <button 
+                      onClick={() => setIsReportModalOpen(true)}
+                      className="bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[10px] px-2.5 py-1 rounded-full transition-colors border border-transparent hover:border-red-500/30 font-bold"
+                    >
+                      🚨 신고
+                    </button>
+                  )}
+                  <button 
+                    onClick={leaveRoom}
+                    className="bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/80 text-[10px] px-2.5 py-1 rounded-full transition-colors border border-transparent"
+                  >
+                    나가기
+                  </button>
+                </div>
               </div>
               {!isSingleMode && <span className="text-xs text-white/40 tracking-wider">참여 인원: {participantCount}명</span>}
             </div>
@@ -485,7 +549,6 @@ export default function WeUsApp() {
               </div>
             ))}
             
-            {/* ★ 혁신 2. 타이핑 인디케이터 애니메이션 */}
             {isTyping && (
               <div className="flex justify-start animate-fade-in-up">
                 <div className="max-w-[80%] p-3.5 rounded-2xl bg-white/5 border border-white/10 text-white/50 rounded-tl-sm flex items-center gap-1">
