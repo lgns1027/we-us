@@ -17,6 +17,7 @@ mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log("🍃 MongoDB 연결 성공! 대화 기록이 영구 저장됩니다."))
   .catch(err => console.error("❌ DB 연결 실패:", err));
 
+// ★ 진화 1: 대화 리포트 스키마에 AI가 추출한 '세부 스탯(Stats)' 추가
 const ReportSchema = new mongoose.Schema({
   roomName: String,
   userIds: [String], 
@@ -25,16 +26,20 @@ const ReportSchema = new mongoose.Schema({
   participants: Number,
   fullLog: [String],
   aiReport: String,
+  stats: {
+    logic: { type: Number, default: 50 },
+    linguistics: { type: Number, default: 50 },
+    empathy: { type: Number, default: 50 }
+  },
   createdAt: { type: Date, default: Date.now }
 });
 const Report = mongoose.model('Report', ReportSchema);
 
-// ★ 추가: 악성 유저 블랙리스트 스키마
+// ★ 진화 2: 트롤 유저 영구 박제를 위한 블랙리스트 스키마 추가
 const BlacklistSchema = new mongoose.Schema({
+  reporterId: String,
   roomName: String,
-  reporterId: String,       // 신고한 사람
-  reportedUserIds: [String],// 신고당한 방의 나머지 사람들
-  reason: String,           // 신고 사유
+  reason: String,
   createdAt: { type: Date, default: Date.now }
 });
 const Blacklist = mongoose.model('Blacklist', BlacklistSchema);
@@ -46,21 +51,10 @@ const matchTimers = {};
 const roomVotes = {};     
 const activeRooms = {};   
 
-// ★ 추가: 기본 비속어 마스킹 로직 (MVP 버전)
-const BAD_WORDS = ['씨발', '시발', '개새끼', '병신', '지랄', '미친년', '좆'];
-function maskProfanity(text) {
-  let maskedText = text;
-  BAD_WORDS.forEach(word => {
-    const regex = new RegExp(word, 'gi');
-    maskedText = maskedText.replace(regex, '***');
-  });
-  return maskedText;
-}
-
-// --- [3. AI 통신 엔진 (Gemma 3중 루프 유지!)] ---
-async function getGoogleAIResponse(systemPrompt, history, maxTokens = 150) {
+// --- [3. AI 통신 엔진 (Gemma 3중 루프 완벽 보존)] ---
+async function getGoogleAIResponse(systemPrompt, history, maxTokens = 250) {
   const modelsToTry = [
-    "gemma-3-12b-it", 
+    "gemma-3-12b-it", // 속도와 성능 밸런스 1순위
     "gemma-3-27b-it",
     "gemma-3-4b-it"
   ];
@@ -95,14 +89,28 @@ async function getGoogleAIResponse(systemPrompt, history, maxTokens = 150) {
   return "네트워크가 불안정하여 AI가 답변을 고민하고 있습니다.";
 }
 
+// ★ 진화 3: 욕설 필터링 함수 (서버단에서 원천 차단)
+function filterProfanity(text) {
+  const badWords = ['씨발', '시발', '개새끼', '지랄', '병신', '애미', '존나', '좆']; 
+  let filtered = text;
+  badWords.forEach(word => {
+    const regex = new RegExp(word, 'gi');
+    filtered = filtered.replace(regex, '***');
+  });
+  return filtered;
+}
+
+// 다중 페르소나 및 데이터 추출 프롬프트 생성기
 function getPersonaPrompt(topic, isReport = false) {
   if (isReport) {
+    const basePrompt = `대화 기록을 전문가의 시선으로 분석하여 1. 대화 밀도(100점 만점) 2. 핵심 키워드(#해시태그) 3. 총평을 3줄로 작성하세요.`;
+    // ★ 빅데이터 시각화를 위해 AI에게 정확한 규격으로 점수를 뱉어내도록 강제
+    const statsInstruction = `\n\n반드시 답변 맨 마지막 줄에 다음 형식으로 참가자의 평균 능력치를 평가해 적어주세요: [LOGIC: 0~100사이숫자] [LINGUISTICS: 0~100사이숫자] [EMPATHY: 0~100사이숫자]`;
+    
     if (['한국어', '영어', '일본어', '프랑스어'].includes(topic)) {
-      return `사용자가 AI와 진행한 '${topic}' 어학 기록입니다. 언어 전문가의 시선으로 1. 종합 성취도(100점 만점) 2. 대화의 강점(1줄) 3. 성장을 위한 조언(1줄)을 작성하세요.`;
-    } else if (['진상손님 방어전 (알바생)', '압박 면접 (지원자)'].includes(topic)) {
-      return `사용자의 롤플레잉 대화 기록입니다. 1. 위기 대처 능력(100점 만점) 2. 멘탈 방어력 평가(1줄) 3. AI의 냉정한 피드백(1줄)을 작성하세요.`;
+      return `사용자가 AI와 진행한 '${topic}' 어학 기록입니다. 1. 종합 성취도 2. 대화의 강점 3. 성장을 위한 조언을 작성하세요.` + statsInstruction;
     } else {
-      return `익명 참가자(또는 AI와 유저)들이 나눈 살롱 대화 기록입니다. 1. 대화 밀도(100점 만점) 2. 핵심 키워드(#해시태그 3개) 3. 총평(통찰력 있는 1줄)을 작성하세요.`;
+      return basePrompt + statsInstruction;
     }
   }
 
@@ -184,7 +192,7 @@ io.on('connection', (socket) => {
     
     activeRooms[roomId] = { 
       type: 'single', 
-      topic: topic,
+      topic: topic, 
       history: [], 
       isGeneratingReport: false,
       userIds: new Set() 
@@ -206,21 +214,35 @@ io.on('connection', (socket) => {
     const roomData = activeRooms[data.room || data.roomId];
     if (!roomData) return;
 
-    // ★ 적용: 유저가 보낸 메시지를 가로채서 욕설 필터링 수행
-    const safeText = maskProfanity(data.text);
+    // ★ 욕설 마스킹 적용
+    const cleanText = filterProfanity(data.text);
 
     if (roomData.type === 'multi') {
-      roomData.history.push(`${socket.userAlias}: ${safeText}`);
-      socket.to(data.room).emit('receive_message', { sender: socket.userAlias, text: safeText });
+      roomData.history.push(`${socket.userAlias}: ${cleanText}`);
+      socket.to(data.room).emit('receive_message', { sender: socket.userAlias, text: cleanText });
     } 
     else if (roomData.type === 'single') {
-      roomData.history.push({ role: 'user', content: safeText }); 
+      roomData.history.push({ role: 'user', content: cleanText }); 
       
       const systemPrompt = getPersonaPrompt(roomData.topic, false);
       const aiReply = await getGoogleAIResponse(systemPrompt, roomData.history.slice(-8), 150);
       
       roomData.history.push({ role: 'assistant', content: aiReply }); 
       socket.emit('receive_message', { sender: 'AI 🤖', text: aiReply });
+    }
+  });
+
+  // ★ 신고 접수 소켓
+  socket.on('report_user', async (data) => {
+    try {
+      await Blacklist.create({
+        reporterId: data.reporterId,
+        roomName: data.room,
+        reason: data.reason
+      });
+      console.log(`🚨 신고 접수 완료: [${data.room}] 사유: ${data.reason}`);
+    } catch (err) {
+      console.error("신고 DB 저장 실패:", err);
     }
   });
 
@@ -238,35 +260,6 @@ io.on('connection', (socket) => {
     
     if (!aiMessage.includes("불안정하여")) {
       io.to(data.room).emit('receive_message', { sender: 'AI 🤖', text: aiMessage });
-    }
-  });
-
-  // ★ 추가: 방 신고 접수 로직 (상대방 차단 및 DB 기록)
-  socket.on('report_room', async (data) => {
-    const { room, reporterId, reason } = data;
-    const roomData = activeRooms[room];
-    if (!roomData) return;
-
-    try {
-      // 해당 방에 있던 유저 ID 중 신고자를 제외한 나머지(상대방)를 블랙리스트 타겟으로 추출
-      const reportedUsers = Array.from(roomData.userIds).filter(id => id !== reporterId);
-      
-      await Blacklist.create({
-        roomName: room,
-        reporterId: reporterId,
-        reportedUserIds: reportedUsers,
-        reason: reason
-      });
-      console.log(`🚨 [신고 접수] 방: ${room}, 사유: ${reason}, 타겟: ${reportedUsers.join(', ')}`);
-
-      // 방 폭파 및 상대방 강제 퇴장 처리
-      socket.to(room).emit('receive_message', { sender: 'System', text: `[경고] 누군가 이 방을 신고하여 대화가 강제 종료되었습니다.` });
-      socket.to(room).emit('partner_left');
-      delete activeRooms[room];
-      delete roomVotes[room];
-      
-    } catch (err) {
-      console.error("🔥 신고 DB 저장 실패:", err);
     }
   });
 
@@ -288,8 +281,21 @@ io.on('connection', (socket) => {
       ? roomData.history.map(msg => `${msg.role === 'user' ? '나' : 'AI'}: ${msg.content}`).join('\n')
       : roomData.history.join('\n');
 
-    const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 200);
+    const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 300);
     
+    // ★ 정규식을 이용해 AI 응답에서 능력치 점수 파싱
+    let logicScore = 50, linguisticsScore = 50, empathyScore = 50;
+    const logicMatch = reportContent.match(/\[LOGIC:\s*(\d+)\]/i);
+    const linguisticsMatch = reportContent.match(/\[LINGUISTICS:\s*(\d+)\]/i);
+    const empathyMatch = reportContent.match(/\[EMPATHY:\s*(\d+)\]/i);
+
+    if (logicMatch) logicScore = parseInt(logicMatch[1]);
+    if (linguisticsMatch) linguisticsScore = parseInt(linguisticsMatch[1]);
+    if (empathyMatch) empathyScore = parseInt(empathyMatch[1]);
+
+    // 화면에 보여줄 때는 지저분한 태그를 지워버림
+    const cleanReportText = reportContent.replace(/\[LOGIC:.*\]|\[LINGUISTICS:.*\]|\[EMPATHY:.*\]/gi, '').trim();
+
     try {
       if (!reportContent.includes("불안정하여")) {
         await Report.create({
@@ -299,7 +305,8 @@ io.on('connection', (socket) => {
           topic: roomData.topic || '알 수 없음',
           participants: roomData.participants || 2,
           fullLog: roomData.type === 'single' ? roomData.history.map(m => m.content) : roomData.history,
-          aiReport: reportContent
+          aiReport: cleanReportText,
+          stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore }
         });
       }
     } catch (dbError) {
@@ -309,7 +316,7 @@ io.on('connection', (socket) => {
     if (reportContent.includes("불안정하여")) {
       io.to(data.room).emit('receive_report', { error: true });
     } else {
-      io.to(data.room).emit('receive_report', { reportText: reportContent });
+      io.to(data.room).emit('receive_report', { reportText: cleanReportText });
     }
   });
 
