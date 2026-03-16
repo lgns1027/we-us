@@ -5,11 +5,35 @@ import { io, Socket } from 'socket.io-client';
 
 const SERVER_URL = 'https://we-us-backend.onrender.com';
 
+// ★ S급 로비 큐레이션 데이터
+const LOBBY_CATEGORIES = [
+  { 
+    id: 'lang', 
+    icon: '🌍', 
+    title: '어학 튜터링', 
+    desc: 'AI 튜터 및 글로벌 유저와 실전 회화',
+    options: ['한국어', '영어', '일본어', '프랑스어'] 
+  },
+  { 
+    id: 'deep', 
+    icon: '🍷', 
+    title: '딥 토크 살롱', 
+    desc: '일상에서 나누기 힘든 철학적, 지적 대화',
+    options: ['최악의 이불킥 경험', '자본주의 생존기', '100억 받기 VS 무병장수'] 
+  },
+  { 
+    id: 'roleplay', 
+    icon: '🎭', 
+    title: '도파민 롤플레잉', 
+    desc: '스트레스 해소용 익명 상황극',
+    options: ['진상손님 방어전 (알바생)', '압박 면접 (지원자)'] 
+  }
+];
+
 export default function WeUsApp() {
-  // ★ 탭 및 유저 식별 상태
   const [activeTab, setActiveTab] = useState<'lobby' | 'myRecord'>('lobby');
   const [userId, setUserId] = useState<string>('');
-  const [myReports, setMyReports] = useState<any[]>([]); // 추후 DB에서 불러올 내 기록들
+  const [myReports, setMyReports] = useState<any[]>([]); 
 
   const [step, setStep] = useState<'lobby' | 'waiting' | 'chat'>('lobby');
   const [timeLeft, setTimeLeft] = useState(180); 
@@ -19,8 +43,9 @@ export default function WeUsApp() {
   const [isHost, setIsHost] = useState(false); 
   const [isSingleMode, setIsSingleMode] = useState(false); 
   
-  const [selectedLang, setSelectedLang] = useState('한국어');
-  const [selectedTopic, setSelectedTopic] = useState('일상 대화');
+  // ★ 로비 선택 상태 관리
+  const [selectedCategory, setSelectedCategory] = useState<string>('lang');
+  const [selectedTopic, setSelectedTopic] = useState<string>('영어');
 
   const [hasVoted, setHasVoted] = useState(false);
   const [partnerVoted, setPartnerVoted] = useState(false);
@@ -34,11 +59,14 @@ export default function WeUsApp() {
   const [showAd, setShowAd] = useState(false);
   const [adCountdown, setAdCountdown] = useState(3);
 
+  // ★ UX 개선: 지연 시간 마스킹용 상태값 추가
+  const [isConnecting, setIsConnecting] = useState(false); // 매칭 접속 로딩
+  const [isTyping, setIsTyping] = useState(false); // 상대방(AI) 타이핑 애니메이션
+
   const socketRef = useRef<Socket | null>(null);
   const lastInteractionTime = useRef<number>(Date.now());
   const messagesRef = useRef(messages);
 
-  // ★ 1. 기기 고유 ID(UUID) 발급 로직
   useEffect(() => {
     let storedId = localStorage.getItem('weus_user_id');
     if (!storedId) {
@@ -52,11 +80,16 @@ export default function WeUsApp() {
     messagesRef.current = messages;
   }, [messages]);
 
-  // ★ 2. 소켓 통신 로직
   useEffect(() => {
     socketRef.current = io(SERVER_URL);
 
+    // 내 기록 받아오기
+    socketRef.current.on('receive_my_records', (records) => {
+      setMyReports(records);
+    });
+
     socketRef.current.on('matched', (data) => {
+      setIsConnecting(false); // ★ 매칭 완료 시 버튼 로딩 해제
       const matchRoom = data.roomName || data.roomId; 
       setRoom(matchRoom);
       setParticipantCount(data.participantCount || 2); 
@@ -69,15 +102,17 @@ export default function WeUsApp() {
       setIsAnalyzing(false);
       setReportData(null);
       setShowAd(false); 
+      setIsTyping(false); // 타이핑 초기화
       
       const partnerName = data.partner || `총 ${data.participantCount}명`;
-      setMessages([{ sender: 'System', text: `매칭 성공! [${selectedLang} - ${selectedTopic}] 모드로 ${partnerName}이 대화를 시작합니다.` }]);
+      setMessages([{ sender: 'System', text: `[${selectedTopic}] 주제로 ${partnerName}와 연결되었습니다.` }]);
       
       lastInteractionTime.current = Date.now();
       if (socketRef.current?.id === data.hostId) setIsHost(true);
     });
 
     socketRef.current.on('receive_message', (data) => {
+      setIsTyping(false); // ★ 메시지 도착 시 타이핑 애니메이션 즉시 종료
       setMessages((prev) => [...prev, { sender: data.sender, text: data.text }]);
       lastInteractionTime.current = Date.now();
     });
@@ -119,9 +154,14 @@ export default function WeUsApp() {
     });
 
     return () => { socketRef.current?.disconnect(); };
-  }, [selectedLang, selectedTopic, isAnalyzing, reportData, showAd]);
+  }, [selectedTopic, isAnalyzing, reportData, showAd]);
 
-  // ★ 3. 타이머 및 AI 상태 관리
+  useEffect(() => {
+    if (activeTab === 'myRecord' && userId && socketRef.current) {
+      socketRef.current.emit('request_my_records', userId);
+    }
+  }, [activeTab, userId]);
+
   useEffect(() => {
     if (step !== 'chat' || timeLeft <= 0 || isAnalyzing || reportData || showAd) return;
     const timer = setInterval(() => {
@@ -131,7 +171,6 @@ export default function WeUsApp() {
           setIsAnalyzing(true);
           setShowAd(true);        
           setAdCountdown(3);      
-          // 여기서 userId도 같이 보내서 DB에 누구 건지 기록하게 만들 예정
           socketRef.current?.emit('request_chemistry_report', { room, userId }); 
           return 0;
         }
@@ -164,10 +203,14 @@ export default function WeUsApp() {
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() || !room) return;
+    
     setMessages((prev) => [...prev, { sender: '나', text: inputText }]);
     socketRef.current?.emit('send_message', { room: room, roomId: room, text: inputText });
     setInputText('');
     lastInteractionTime.current = Date.now();
+    
+    // ★ UX 개선: 내가 메시지를 보내면, 무조건 상대방(또는 AI)이 타이핑 중이라고 애니메이션을 띄움
+    setIsTyping(true); 
   };
 
   const formatTime = (seconds: number) => {
@@ -180,6 +223,8 @@ export default function WeUsApp() {
     if (confirm("정말 대화방에서 나가시겠습니까?")) {
       socketRef.current?.emit('leave_room', { room });
       setStep('lobby');
+      setIsTyping(false);
+      setIsConnecting(false);
     }
   };
 
@@ -198,118 +243,123 @@ export default function WeUsApp() {
     }
   };
 
+  // 현재 선택된 카테고리의 옵션 리스트 찾기
+  const currentOptions = LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.options || [];
+
   return (
     <div className="min-h-screen bg-[#050505] text-gray-100 font-sans flex flex-col items-center justify-center p-4 relative overflow-hidden">
-      {/* S급 디테일: 배경의 은은한 네온 글로우 */}
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/10 blur-[100px] rounded-full pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-900/10 blur-[100px] rounded-full pointer-events-none" />
 
-      {/* ============================== */}
-      {/* [1] 마이페이지 (RECORD 탭) 화면 */}
-      {/* ============================== */}
       {step === 'lobby' && activeTab === 'myRecord' && (
         <div className="w-full max-w-lg h-[85vh] bg-white/[0.02] backdrop-blur-xl border border-white/10 rounded-3xl p-6 flex flex-col z-10 shadow-2xl relative">
           <h2 className="text-2xl font-light tracking-widest text-white mb-2">MY RECORD</h2>
           <p className="text-xs text-white/40 mb-6 font-mono">ID: {userId}</p>
           
           <div className="flex-1 overflow-y-auto space-y-4 pb-20">
-            {/* 임시 데이터 (나중에 백엔드와 연결하여 렌더링) */}
-            <div className="bg-black/40 p-5 rounded-2xl border border-white/5">
-              <div className="flex justify-between items-center mb-3">
-                <span className="text-xs text-emerald-400 font-bold tracking-wider">AI 싱글 모드 (영어)</span>
-                <span className="text-[10px] text-white/30">방금 전</span>
+            {myReports.length === 0 ? (
+              <div className="text-center pt-20">
+                <p className="text-sm text-white/30 tracking-widest">아직 대화 기록이 없습니다.</p>
+                <p className="text-xs text-white/20 mt-2">첫 대화를 시작하고 성장을 기록해 보세요.</p>
               </div>
-              <p className="text-sm text-gray-300 leading-relaxed line-clamp-3">
-                [종합 성취도: 85점] 대화의 강점: 시제 표현이 매우 정확합니다. 성장을 위한 조언: 감정 표현 형용사를 더 다양하게 써보세요.
-              </p>
-            </div>
-
-            <div className="bg-black/40 p-5 rounded-2xl border border-white/5">
-              <div className="flex justify-between items-center mb-3">
-                <span className="text-xs text-blue-400 font-bold tracking-wider">극단적 취향 전투장</span>
-                <span className="text-[10px] text-white/30">어제</span>
-              </div>
-              <p className="text-sm text-gray-300 leading-relaxed line-clamp-3">
-                [대화 밀도: 92점] 팩트폭격기 성향이 강합니다. 날카로운 논리로 대화를 주도했습니다.
-              </p>
-            </div>
-            
-            <div className="text-center pt-10">
-              <p className="text-sm text-white/30">곧 실제 대화 기록이 이곳에 누적됩니다.</p>
-            </div>
+            ) : (
+              myReports.map((report, idx) => (
+                <div key={idx} className="bg-black/40 p-5 rounded-2xl border border-white/5 shadow-lg">
+                  <div className="flex justify-between items-center mb-3">
+                    <span className={`text-xs font-bold tracking-wider ${report.type === 'single' ? 'text-emerald-400' : 'text-blue-400'}`}>
+                      {report.type === 'single' ? `AI 싱글 튜터링` : `익명 그룹 대화`}
+                    </span>
+                    <span className="text-[10px] text-white/30">
+                      {new Date(report.createdAt).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-line">
+                    {report.aiReport}
+                  </p>
+                </div>
+              ))
+            )}
           </div>
         </div>
       )}
 
-      {/* ============================== */}
-      {/* [2] 로비 화면 (LOBBY 탭) */}
-      {/* ============================== */}
       {step === 'lobby' && activeTab === 'lobby' && (
-        <div className="text-center max-w-md w-full space-y-10 z-10">
-          <div className="space-y-3">
-            <h1 className="text-5xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-500 drop-shadow-lg">
+        <div className="text-center max-w-lg w-full space-y-8 z-10 h-[85vh] flex flex-col justify-center pb-16">
+          <div className="space-y-2 mb-4">
+            <h1 className="text-4xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-500 drop-shadow-lg">
               WE US.
             </h1>
-            <p className="text-gray-400 font-light tracking-widest text-sm">우리가 되어가는 3분의 시간</p>
+            <p className="text-gray-400 font-light tracking-widest text-xs">우리가 되어가는 3분의 시간</p>
           </div>
           
-          <div className="bg-white/[0.03] backdrop-blur-xl p-8 rounded-3xl border border-white/5 space-y-6 shadow-2xl">
-            <div className="flex flex-col text-left space-y-2">
-              <label className="text-xs text-gray-400 uppercase tracking-widest font-semibold">언어 선택</label>
-              <select 
-                value={selectedLang} 
-                onChange={(e) => setSelectedLang(e.target.value)}
-                className="bg-black/40 border border-white/10 text-white text-sm rounded-xl focus:ring-1 focus:ring-white/30 focus:border-white/30 block w-full p-3.5 outline-none cursor-pointer appearance-none transition-all"
+          {/* ★ 혁신 1. 로비 큐레이션 카드 UI */}
+          <div className="grid grid-cols-3 gap-3">
+            {LOBBY_CATEGORIES.map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => {
+                  setSelectedCategory(cat.id);
+                  setSelectedTopic(cat.options[0]); // 첫 번째 옵션 자동 선택
+                }}
+                className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all border ${
+                  selectedCategory === cat.id 
+                  ? 'bg-white/10 border-white/30 shadow-[0_0_15px_rgba(255,255,255,0.1)]' 
+                  : 'bg-white/[0.02] border-white/5 opacity-50 hover:opacity-100'
+                }`}
               >
-                <option value="한국어">🇰🇷 한국어 (Korean)</option>
-                <option value="영어">🇺🇸 영어 (English)</option>
-                <option value="일본어">🇯🇵 일본어 (Japanese)</option>
-                <option value="프랑스어">🇫🇷 프랑스어 (French)</option>
-              </select>
-            </div>
+                <span className="text-2xl mb-1">{cat.icon}</span>
+                <span className="text-xs font-bold tracking-wider text-white">{cat.title}</span>
+              </button>
+            ))}
+          </div>
 
-            <div className="flex flex-col text-left space-y-2">
-              <label className="text-xs text-gray-400 uppercase tracking-widest font-semibold">대화 주제</label>
+          <div className="bg-white/[0.03] backdrop-blur-xl p-6 rounded-3xl border border-white/5 shadow-2xl space-y-6">
+            <div className="flex flex-col text-left space-y-3">
+              <label className="text-xs text-emerald-400 uppercase tracking-widest font-bold">
+                {LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.desc}
+              </label>
               <select 
                 value={selectedTopic} 
                 onChange={(e) => setSelectedTopic(e.target.value)}
-                className="bg-black/40 border border-white/10 text-white text-sm rounded-xl focus:ring-1 focus:ring-white/30 focus:border-white/30 block w-full p-3.5 outline-none cursor-pointer appearance-none transition-all"
+                className="bg-black/40 border border-white/10 text-white text-sm rounded-xl focus:ring-1 focus:ring-white/30 focus:border-white/30 block w-full p-4 outline-none cursor-pointer appearance-none transition-all"
               >
-                <option value="일상 대화">☕ 편안한 일상 대화</option>
-                <option value="영화/문화">🍿 영화와 문화</option>
-                <option value="극단적 밸런스게임">⚖️ 극단적 취향 전투장 (VS)</option>
-                <option value="상황극: 알바생과 진상손님">🤬 알바생과 진상손님 방어전</option>
+                {currentOptions.map(opt => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
               </select>
             </div>
-          </div>
 
-          <div className="space-y-4">
-            <button 
-              onClick={() => {
-                setIsSingleMode(false);
-                setStep('waiting');
-                socketRef.current?.emit('join_queue', { lang: selectedLang, topic: selectedTopic }); 
-              }}
-              className="w-full bg-white text-black font-extrabold tracking-wide py-4 rounded-xl hover:bg-gray-200 transition-all shadow-[0_0_20px_rgba(255,255,255,0.1)]"
-            >
-              익명 매칭 시작하기
-            </button>
-            <button 
-              onClick={() => {
-                setIsSingleMode(true);
-                socketRef.current?.emit('start_ai_chat', selectedLang); 
-              }}
-              className="w-full bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-4 rounded-xl border border-white/10 transition-all"
-            >
-              AI와 먼저 연습하기
-            </button>
+            <div className="space-y-3 pt-2">
+              <button 
+                disabled={isConnecting}
+                onClick={() => {
+                  setIsConnecting(true); // ★ 로딩 시작
+                  setIsSingleMode(false);
+                  socketRef.current?.emit('join_queue', { lang: '공통', topic: selectedTopic }); 
+                  setStep('waiting');
+                }}
+                className="w-full bg-white text-black font-extrabold tracking-wide py-4 rounded-xl hover:bg-gray-200 transition-all shadow-lg flex justify-center items-center gap-2"
+              >
+                {isConnecting && !isSingleMode ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"/> : null}
+                익명 매칭 시작하기
+              </button>
+              <button 
+                disabled={isConnecting}
+                onClick={() => {
+                  setIsConnecting(true); // ★ 로딩 시작
+                  setIsSingleMode(true);
+                  socketRef.current?.emit('start_ai_chat', selectedTopic); 
+                }}
+                className="w-full bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-4 rounded-xl border border-white/10 transition-all flex justify-center items-center gap-2"
+              >
+                {isConnecting && isSingleMode ? <div className="w-4 h-4 border-2 border-white/50 border-t-transparent rounded-full animate-spin"/> : null}
+                AI와 먼저 연습하기
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* ============================== */}
-      {/* [3] 하단 네비게이션 탭 (로비 화면일 때만 노출) */}
-      {/* ============================== */}
       {step === 'lobby' && (
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center bg-black/60 backdrop-blur-xl border border-white/10 rounded-full p-1.5 z-20 shadow-2xl">
           <button 
@@ -327,9 +377,6 @@ export default function WeUsApp() {
         </div>
       )}
 
-      {/* ============================== */}
-      {/* [4] 대기열 & 채팅방 화면 (기존과 동일) */}
-      {/* ============================== */}
       {step === 'waiting' && (
         <div className="text-center space-y-6 z-10">
           <div className="relative w-20 h-20 mx-auto">
@@ -338,12 +385,10 @@ export default function WeUsApp() {
           </div>
           <p className="text-xl font-light text-white tracking-wider">상대방을 찾는 중...</p>
           <div className="inline-block px-4 py-1.5 rounded-full border border-white/10 bg-white/5 backdrop-blur-sm">
-            <p className="text-sm text-white/60">
-              {selectedLang} <span className="mx-2">•</span> {selectedTopic}
-            </p>
+            <p className="text-sm text-white/60">{selectedTopic}</p>
           </div>
           <div className="pt-8">
-            <button onClick={() => setStep('lobby')} className="text-sm text-white/30 hover:text-white/80 underline tracking-widest transition-colors">
+            <button onClick={() => { setStep('lobby'); setIsConnecting(false); }} className="text-sm text-white/30 hover:text-white/80 underline tracking-widest transition-colors">
               취소
             </button>
           </div>
@@ -382,9 +427,7 @@ export default function WeUsApp() {
           {isAnalyzing && !showAd && !reportData && (
             <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center z-40 backdrop-blur-md">
               <div className="w-12 h-12 border-2 border-white/20 border-t-white rounded-full animate-spin mb-6"></div>
-              <p className="text-white font-light tracking-widest">
-                {isSingleMode ? 'AI가 대화 흐름을 분석하고 있습니다...' : '두 사람의 케미를 분석하고 있습니다...'}
-              </p>
+              <p className="text-white font-light tracking-widest">분석 중입니다...</p>
             </div>
           )}
 
@@ -423,7 +466,7 @@ export default function WeUsApp() {
               <div className="flex items-center gap-3">
                 <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="font-semibold text-sm text-white/90 truncate">
-                  {isSingleMode ? `AI 싱글 모드` : `${selectedTopic}`}
+                  {isSingleMode ? `AI 싱글: ${selectedTopic}` : `${selectedTopic}`}
                 </span>
                 <button 
                   onClick={leaveRoom}
@@ -435,13 +478,11 @@ export default function WeUsApp() {
               {!isSingleMode && <span className="text-xs text-white/40 tracking-wider">참여 인원: {participantCount}명</span>}
             </div>
             <div className={`px-3 py-1 rounded-full border ${timeLeft < 60 ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-white/5 border-white/10 text-white/80'}`}>
-              <span className="font-mono text-sm tracking-wider font-medium">
-                {formatTime(timeLeft)}
-              </span>
+              <span className="font-mono text-sm tracking-wider font-medium">{formatTime(timeLeft)}</span>
             </div>
           </div>
 
-          <div className="flex-1 p-5 overflow-y-auto space-y-4 pb-24">
+          <div className="flex-1 p-5 overflow-y-auto space-y-4 pb-24 flex flex-col">
             {messages.map((msg, idx) => (
               <div key={idx} className={`flex ${msg.sender === '나' ? 'justify-end' : msg.sender === 'System' ? 'justify-center' : 'justify-start'}`}>
                 <div className={`max-w-[80%] p-3.5 rounded-2xl text-[15px] leading-relaxed ${
@@ -454,15 +495,23 @@ export default function WeUsApp() {
                 </div>
               </div>
             ))}
+            
+            {/* ★ 혁신 2. 타이핑 인디케이터 애니메이션 */}
+            {isTyping && (
+              <div className="flex justify-start animate-fade-in-up">
+                <div className="max-w-[80%] p-3.5 rounded-2xl bg-white/5 border border-white/10 text-white/50 rounded-tl-sm flex items-center gap-1">
+                  <div className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                  <div className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                  <div className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                </div>
+              </div>
+            )}
           </div>
 
           {timeLeft <= 60 && !isSingleMode && !isAnalyzing && !reportData && extensionCount < 2 && !showAd && (
             <div className="absolute bottom-[80px] left-0 w-full p-3 bg-gradient-to-t from-[#0a0a0a] to-transparent flex flex-col items-center justify-center">
               <button
-                onClick={() => {
-                  setHasVoted(true);
-                  socketRef.current?.emit('vote_extend', { room });
-                }}
+                onClick={() => { setHasVoted(true); socketRef.current?.emit('vote_extend', { room }); }}
                 disabled={hasVoted}
                 className={`px-6 py-2.5 rounded-full font-bold text-sm shadow-lg transition-all border ${
                   hasVoted ? 'bg-white/5 border-white/10 text-white/30 cursor-not-allowed' : 'bg-emerald-500/20 border-emerald-500/50 hover:bg-emerald-500/30 text-emerald-300'
@@ -470,11 +519,6 @@ export default function WeUsApp() {
               >
                 {hasVoted ? `동의 대기중 ${voteStatus}` : `+ 2분 연장하기 (${extensionCount}/2)`}
               </button>
-              {partnerVoted && !hasVoted && (
-                <span className="mt-2 text-[11px] text-emerald-400/80 font-medium tracking-wide">
-                  상대방이 시간 연장을 원합니다.
-                </span>
-              )}
             </div>
           )}
 
@@ -487,7 +531,7 @@ export default function WeUsApp() {
               placeholder="메시지 입력..." 
               className="flex-1 bg-white/5 text-white px-5 py-3.5 rounded-full outline-none focus:bg-white/10 transition-colors disabled:opacity-50 text-sm placeholder:text-white/20 border border-transparent focus:border-white/10"
             />
-            <button type="submit" disabled={isAnalyzing || !!reportData || showAd} className="bg-white text-black w-12 h-12 rounded-full flex items-center justify-center font-bold hover:bg-gray-200 disabled:opacity-50 transition-colors shrink-0">
+            <button type="submit" disabled={isAnalyzing || !!reportData || showAd || !inputText.trim()} className="bg-white text-black w-12 h-12 rounded-full flex items-center justify-center font-bold hover:bg-gray-200 disabled:opacity-50 transition-colors shrink-0">
               ↑
             </button>
           </form>
