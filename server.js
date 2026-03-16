@@ -17,8 +17,10 @@ mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log("🍃 MongoDB 연결 성공! 대화 기록이 영구 저장됩니다."))
   .catch(err => console.error("❌ DB 연결 실패:", err));
 
+// 다중 유저 ID 저장을 위한 배열 추가
 const ReportSchema = new mongoose.Schema({
   roomName: String,
+  userIds: [String], 
   type: String, 
   lang: String,
   topic: String,
@@ -36,7 +38,7 @@ const matchTimers = {};
 const roomVotes = {};     
 const activeRooms = {};   
 
-// --- [3. AI 통신 엔진 (Gemma 우회 적용)] ---
+// --- [3. AI 통신 엔진 (Gemma 3중 루프 원상 복구)] ---
 async function getGoogleAIResponse(systemPrompt, history, maxTokens = 150) {
   const modelsToTry = [
     "gemma-3-12b-it", // 속도와 성능 밸런스 1순위
@@ -91,7 +93,8 @@ function startGroupRoom(queueKey) {
     participants: users.length, 
     isGeneratingReport: false,
     lang: queueKey.split('_')[0],
-    topic: queueKey.split('_')[1]
+    topic: queueKey.split('_')[1],
+    userIds: new Set()
   };
 
   const aliases = ['익명 A', '익명 B', '익명 C', '익명 D'];
@@ -132,7 +135,14 @@ io.on('connection', (socket) => {
     socket.join(roomId);
     socket.userAlias = '나';
     
-    activeRooms[roomId] = { type: 'single', lang: lang, topic: 'AI 연습', history: [], isGeneratingReport: false };
+    activeRooms[roomId] = { 
+      type: 'single', 
+      lang: lang, 
+      topic: 'AI 연습', 
+      history: [], 
+      isGeneratingReport: false,
+      userIds: new Set() 
+    };
     socket.emit('matched', { roomId: roomId, partner: `수석 ${lang} 튜터`, participantCount: 2 });
     
     const welcomeMsg = `환영합니다. 저는 당신의 ${lang} 회화 파트너입니다. 어떤 주제든 편하게 말씀해 주시면, 자연스러운 대화와 함께 필요한 교정을 도와드리겠습니다.`;
@@ -150,8 +160,6 @@ io.on('connection', (socket) => {
     } 
     else if (roomData.type === 'single') {
       roomData.history.push({ role: 'user', content: data.text }); 
-      
-      // ★ 혁신 1. 싱글 모드: 단순 챗봇이 아닌 '전문 어학 튜터' 페르소나 부여
       const systemPrompt = `당신은 최고 수준의 '${roomData.lang}' 원어민 튜터입니다. 사용자의 언어 학습을 돕고, 지적이고 자연스러운 대화를 이끌어주세요. 만약 문법이나 표현이 어색하다면 대화 끝에 '[💡 교정: 올바른 표현]' 형식으로 부드럽게 피드백을 추가하세요.`;
       
       const aiReply = await getGoogleAIResponse(systemPrompt, roomData.history.slice(-8), 150);
@@ -166,9 +174,7 @@ io.on('connection', (socket) => {
       content: `${msg.sender}: ${msg.text}`
     }));
     
-    // ★ 혁신 2. 10초 정적 브레이커: 단순 질문이 아닌 '품격 있는 모더레이터' 역할
     const systemPrompt = `당신은 수준 높은 살롱(Salon)의 '대화 모더레이터'입니다. 참가자들 사이에 10초간 정적이 흘렀습니다. 앞선 대화 문맥을 파악하여, 대화가 다시 자연스럽게 이어질 수 있도록 깊이 있고 생각할 거리를 던지는 부드러운 질문을 하나만 던지세요. 50자 이내로 정중하게 작성하세요.`;
-    
     const aiMessage = await getGoogleAIResponse(systemPrompt, chatHistory, 100);
     
     if (!aiMessage.includes("불안정하여")) {
@@ -185,13 +191,16 @@ io.on('connection', (socket) => {
       return;
     }
 
+    if (data.userId) {
+      roomData.userIds.add(data.userId);
+    }
+
     if (roomData.isGeneratingReport) return; 
     roomData.isGeneratingReport = true; 
 
     let systemPrompt = "";
     let conversationText = "";
 
-    // ★ 혁신 3. AI 리포트: 뻔한 요약이 아닌 '전문가의 분석 지표' 제공
     if (roomData.type === 'single') {
       systemPrompt = `사용자가 AI와 진행한 '${roomData.lang}' 어학 및 소통 기록입니다. 언어/커뮤니케이션 전문가의 시선으로 다음 형식에 맞춰 분석 리포트를 작성하세요.\n\n[퍼스널 커뮤니케이션 분석]\n1. 종합 성취도: (100점 만점)\n2. 대화의 강점: (문법, 어휘, 표현력 등 뛰어난 점 1줄)\n3. 성장을 위한 조언: (더 자연스러운 소통을 위한 팁 1줄)`;
       conversationText = roomData.history.map(msg => `${msg.role === 'user' ? '나' : 'AI'}: ${msg.content}`).join('\n');
@@ -202,11 +211,11 @@ io.on('connection', (socket) => {
 
     const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 200);
     
-    // DB 저장
     try {
       if (!reportContent.includes("불안정하여")) {
         await Report.create({
           roomName: data.room,
+          userIds: Array.from(roomData.userIds), 
           type: roomData.type,
           lang: roomData.lang || '알 수 없음',
           topic: roomData.topic || '알 수 없음',
@@ -214,7 +223,7 @@ io.on('connection', (socket) => {
           fullLog: roomData.type === 'single' ? roomData.history.map(m => m.content) : roomData.history,
           aiReport: reportContent
         });
-        console.log(`✅ ${data.room} 리포트 DB 저장 완료!`);
+        console.log(`✅ ${data.room} DB 저장 완료! (참여 유저 ID: ${Array.from(roomData.userIds).join(', ')})`);
       }
     } catch (dbError) {
       console.error("🔥 DB 저장 실패:", dbError);
@@ -224,6 +233,18 @@ io.on('connection', (socket) => {
       io.to(data.room).emit('receive_report', { error: true });
     } else {
       io.to(data.room).emit('receive_report', { reportText: reportContent });
+    }
+  });
+
+  socket.on('request_my_records', async (userId) => {
+    try {
+      if (!userId) return;
+      const myRecords = await Report.find({ userIds: userId })
+                                    .sort({ createdAt: -1 })
+                                    .limit(20);
+      socket.emit('receive_my_records', myRecords);
+    } catch (err) {
+      console.error("❌ 내 기록 조회 에러:", err);
     }
   });
 
