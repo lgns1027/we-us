@@ -6,11 +6,13 @@ import html2canvas from 'html2canvas';
 
 const SERVER_URL = 'https://we-us-backend.onrender.com';
 
-const LOBBY_CATEGORIES = [
-  { id: 'daily', icon: '☕', title: '일상 라운지', desc: '부담 없는 스몰토크와 편안한 일상 대화', options: ['가벼운 스몰토크', '오늘 하루의 하이라이트', '요즘 꽂힌 취미 이야기'] },
-  { id: 'lang', icon: '🌍', title: '어학 튜터링', desc: 'AI 튜터 및 글로벌 유저와 실전 회화', options: ['영어', '일본어', '프랑스어', '한국어(외국인용)'] },
-  { id: 'deep', icon: '🍷', title: '딥 토크 살롱', desc: '일상에서 나누기 힘든 철학적, 지적 대화', options: ['최악의 이불킥 경험', '자본주의 생존기', '100억 받기 VS 무병장수'] },
-  { id: 'roleplay', icon: '🎭', title: '도파민 롤플레잉', desc: '스트레스 해소용 익명 상황극', options: ['진상손님 방어전 (알바생)', '압박 면접 (지원자)'] }
+// ★ 혁신: 복잡한 카테고리를 버리고, 가장 자극적인 단일 카드(Card) 형태로 데이터 평탄화
+const TOPIC_CARDS = [
+  { icon: '🍷', title: '100억 받기 VS 무병장수', desc: '논리가 통하지 않는 극한의 밸런스 게임' },
+  { icon: '🎭', title: '진상손님 방어전 (알바생)', desc: '말도 안되는 환불 요구를 방어하세요' },
+  { icon: '👔', title: '압박 면접 (지원자)', desc: '당신의 멘탈을 털어버릴 수석 면접관' },
+  { icon: '☕', title: '가벼운 스몰토크', desc: '부담 없이 나누는 오늘 하루 이야기' },
+  { icon: '🌍', title: '영어', desc: '실수해도 괜찮은 3분 실전 영어 회화' }
 ];
 
 export default function WeUsApp() {
@@ -26,8 +28,8 @@ export default function WeUsApp() {
   const [isHost, setIsHost] = useState(false); 
   const [isSingleMode, setIsSingleMode] = useState(false); 
   
-  const [selectedCategory, setSelectedCategory] = useState<string>('daily');
-  const [selectedTopic, setSelectedTopic] = useState<string>('가벼운 스몰토크');
+  // ★ 혁신: 원 카드 스와이프 UI를 위한 상태 관리
+  const [currentCardIndex, setCurrentCardIndex] = useState(0);
 
   const [hasVoted, setHasVoted] = useState(false);
   const [partnerVoted, setPartnerVoted] = useState(false);
@@ -54,17 +56,18 @@ export default function WeUsApp() {
   const lastInteractionTime = useRef<number>(Date.now());
   const messagesRef = useRef(messages);
   
-  const stateRefs = useRef({ selectedTopic, isAnalyzing, reportData, showAd });
+  // 현재 선택된 주제를 Ref에 저장 (방폭 방지용)
+  const currentTopic = TOPIC_CARDS[currentCardIndex].title;
+  const stateRefs = useRef({ currentTopic, isAnalyzing, reportData, showAd });
 
   useEffect(() => {
-    stateRefs.current = { selectedTopic, isAnalyzing, reportData, showAd };
-  }, [selectedTopic, isAnalyzing, reportData, showAd]);
+    stateRefs.current = { currentTopic, isAnalyzing, reportData, showAd };
+  }, [currentTopic, isAnalyzing, reportData, showAd]);
 
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
-  // ★ 구글 로그인 제거 및 기존 LocalStorage 방식 완벽 복구
   useEffect(() => {
     let storedId = localStorage.getItem('weus_user_id');
     if (!storedId) {
@@ -75,11 +78,10 @@ export default function WeUsApp() {
   }, []);
 
   useEffect(() => {
-    if (!userId) return; // ID 세팅 전 대기
+    if (!userId) return;
 
     socketRef.current = io(SERVER_URL);
 
-    // ★ 인사이트 노트를 받아오는 소켓 리스너
     socketRef.current.on('receive_my_records', (records) => {
       setMyReports(records);
     });
@@ -101,7 +103,7 @@ export default function WeUsApp() {
       setIsTyping(false); 
       
       const partnerName = data.partner || `총 ${data.participantCount}명`;
-      setMessages([{ sender: 'System', text: `[${stateRefs.current.selectedTopic}] 주제로 ${partnerName}와 연결되었습니다.` }]);
+      setMessages([{ sender: 'System', text: `[${stateRefs.current.currentTopic}] 주제로 ${partnerName}와 연결되었습니다.` }]);
       
       lastInteractionTime.current = Date.now();
       if (socketRef.current?.id === data.hostId) setIsHost(true);
@@ -152,9 +154,8 @@ export default function WeUsApp() {
     });
 
     return () => { socketRef.current?.disconnect(); };
-  }, [userId]); // userId가 세팅된 후에만 실행
+  }, [userId]); 
 
-  // 마이페이지 진입 시 강제 리포트 조회
   useEffect(() => {
     if (activeTab === 'myRecord' && userId && socketRef.current) {
       socketRef.current.emit('request_my_records', userId);
@@ -272,7 +273,15 @@ export default function WeUsApp() {
     }
   };
 
-  const currentOptions = LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.options || [];
+  const handleNextCard = () => {
+    setCurrentCardIndex((prev) => (prev + 1) % TOPIC_CARDS.length);
+  };
+
+  const handlePrevCard = () => {
+    setCurrentCardIndex((prev) => (prev - 1 + TOPIC_CARDS.length) % TOPIC_CARDS.length);
+  };
+
+  const activeCard = TOPIC_CARDS[currentCardIndex];
   const totalPlayHours = (myReports.length * 3 / 60).toFixed(1);
 
   let avgLogic = 0, avgLinguistics = 0, avgEmpathy = 0;
@@ -380,7 +389,6 @@ export default function WeUsApp() {
             </div>
           </div>
 
-          {/* ★ 인사이트 노트 출력부 */}
           <div className="flex-1 overflow-y-auto space-y-0 -mx-4 px-4 pb-20 scrollbar-hide">
             <h3 className="text-[10px] text-white/30 tracking-widest uppercase mb-4 sticky top-0 bg-[#080808]/90 backdrop-blur-md py-2">
               최근 인사이트 노트
@@ -411,80 +419,84 @@ export default function WeUsApp() {
       )}
 
       {/* ============================== */}
-      {/* LOBBY 등 나머지 화면은 모두 기존과 동일 */}
+      {/* ★ 혁신: 원 카드(One-Card) 집중형 로비 화면 */}
       {/* ============================== */}
       {step === 'lobby' && activeTab === 'lobby' && (
-        <div className="text-center max-w-lg w-full space-y-8 z-10 h-[85vh] flex flex-col justify-center pb-16">
-          <div className="space-y-2 mb-4">
+        <div className="text-center max-w-sm w-full space-y-8 z-10 h-[85vh] flex flex-col justify-center pb-16">
+          <div className="space-y-2 mb-2">
             <h1 className="text-4xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-500 drop-shadow-lg">
               WE US.
             </h1>
-            <p className="text-gray-400 font-light tracking-widest text-xs">우리가 되어가는 3분의 시간</p>
+            <p className="text-gray-500 font-medium tracking-[0.2em] text-[10px] uppercase">
+              지적 자산이 되는 3분의 시간
+            </p>
           </div>
           
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            {LOBBY_CATEGORIES.map(cat => (
-              <button
-                key={cat.id}
-                onClick={() => {
-                  setSelectedCategory(cat.id);
-                  setSelectedTopic(cat.options[0]); 
-                }}
-                className={`p-3 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all border ${
-                  selectedCategory === cat.id 
-                  ? 'bg-white/10 border-white/30 shadow-[0_0_15px_rgba(255,255,255,0.1)]' 
-                  : 'bg-white/[0.02] border-white/5 opacity-50 hover:opacity-100'
-                }`}
-              >
-                <span className="text-xl mb-1">{cat.icon}</span>
-                <span className="text-[10px] font-bold tracking-wider text-white whitespace-nowrap">{cat.title}</span>
-              </button>
-            ))}
+          <div className="relative w-full aspect-[4/5] flex items-center justify-center">
+            {/* 좌측 화살표 */}
+            <button 
+              onClick={handlePrevCard}
+              className="absolute left-[-20px] z-20 w-10 h-10 flex items-center justify-center bg-black/50 backdrop-blur-md rounded-full border border-white/10 text-white/50 hover:text-white transition-all hover:scale-110"
+            >
+              &#10094;
+            </button>
+
+            {/* 메인 토픽 카드 */}
+            <div className="w-full h-full bg-gradient-to-br from-white/[0.05] to-transparent border border-white/10 rounded-[2rem] shadow-2xl flex flex-col items-center justify-center p-8 transition-all duration-300 relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-[50px]"></div>
+              
+              <span className="text-6xl mb-6 filter drop-shadow-[0_0_15px_rgba(255,255,255,0.2)] animate-pulse">
+                {activeCard.icon}
+              </span>
+              <h2 className="text-2xl font-bold text-white mb-3 tracking-tight break-keep">
+                {activeCard.title}
+              </h2>
+              <p className="text-sm text-white/50 font-medium leading-relaxed break-keep px-4">
+                {activeCard.desc}
+              </p>
+
+              <div className="absolute bottom-6 flex gap-1">
+                {TOPIC_CARDS.map((_, idx) => (
+                  <div key={idx} className={`w-1.5 h-1.5 rounded-full transition-all ${idx === currentCardIndex ? 'bg-emerald-400 w-4' : 'bg-white/20'}`} />
+                ))}
+              </div>
+            </div>
+
+            {/* 우측 화살표 */}
+            <button 
+              onClick={handleNextCard}
+              className="absolute right-[-20px] z-20 w-10 h-10 flex items-center justify-center bg-black/50 backdrop-blur-md rounded-full border border-white/10 text-white/50 hover:text-white transition-all hover:scale-110"
+            >
+              &#10095;
+            </button>
           </div>
 
-          <div className="bg-white/[0.03] backdrop-blur-xl p-6 rounded-3xl border border-white/5 shadow-2xl space-y-6">
-            <div className="flex flex-col text-left space-y-3">
-              <label className="text-[11px] text-emerald-400 uppercase tracking-widest font-bold">
-                {LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.desc}
-              </label>
-              <select 
-                value={selectedTopic} 
-                onChange={(e) => setSelectedTopic(e.target.value)}
-                className="bg-black/40 border border-white/10 text-white text-sm rounded-xl focus:ring-1 focus:ring-white/30 focus:border-white/30 block w-full p-4 outline-none cursor-pointer appearance-none transition-all"
-              >
-                {currentOptions.map(opt => (
-                  <option key={opt} value={opt}>{opt}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-3 pt-2">
-              <button 
-                disabled={isConnecting}
-                onClick={() => {
-                  setIsConnecting(true); 
-                  setIsSingleMode(false);
-                  socketRef.current?.emit('join_queue', { lang: '공통', topic: selectedTopic }); 
-                  setStep('waiting');
-                }}
-                className="w-full bg-white text-black font-extrabold tracking-wide py-4 rounded-xl hover:bg-gray-200 transition-all shadow-lg flex justify-center items-center gap-2 text-sm"
-              >
-                {isConnecting && !isSingleMode ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"/> : null}
-                익명 매칭 시작하기
-              </button>
-              <button 
-                disabled={isConnecting}
-                onClick={() => {
-                  setIsConnecting(true); 
-                  setIsSingleMode(true);
-                  socketRef.current?.emit('start_ai_chat', selectedTopic); 
-                }}
-                className="w-full bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-4 rounded-xl border border-white/10 transition-all flex justify-center items-center gap-2 text-sm"
-              >
-                {isConnecting && isSingleMode ? <div className="w-4 h-4 border-2 border-white/50 border-t-transparent rounded-full animate-spin"/> : null}
-                AI와 먼저 연습하기
-              </button>
-            </div>
+          <div className="space-y-3">
+            <button 
+              disabled={isConnecting}
+              onClick={() => {
+                setIsConnecting(true); 
+                setIsSingleMode(false);
+                socketRef.current?.emit('join_queue', { lang: '공통', topic: activeCard.title }); 
+                setStep('waiting');
+              }}
+              className="w-full bg-white text-black font-extrabold tracking-wide py-4 rounded-xl hover:bg-gray-200 transition-all shadow-[0_0_20px_rgba(255,255,255,0.1)] flex justify-center items-center gap-2 text-sm"
+            >
+              {isConnecting && !isSingleMode ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"/> : null}
+              익명 유저와 매칭 시작
+            </button>
+            <button 
+              disabled={isConnecting}
+              onClick={() => {
+                setIsConnecting(true); 
+                setIsSingleMode(true);
+                socketRef.current?.emit('start_ai_chat', activeCard.title); 
+              }}
+              className="w-full bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-4 rounded-xl border border-white/10 transition-all flex justify-center items-center gap-2 text-sm"
+            >
+              {isConnecting && isSingleMode ? <div className="w-4 h-4 border-2 border-white/50 border-t-transparent rounded-full animate-spin"/> : null}
+              AI와 먼저 연습하기
+            </button>
           </div>
         </div>
       )}
@@ -514,7 +526,7 @@ export default function WeUsApp() {
           </div>
           <p className="text-xl font-light text-white tracking-wider">상대방을 찾는 중...</p>
           <div className="inline-block px-4 py-1.5 rounded-full border border-white/10 bg-white/5 backdrop-blur-sm">
-            <p className="text-sm text-white/60">{selectedTopic}</p>
+            <p className="text-sm text-white/60">{activeCard.title}</p>
           </div>
           <div className="pt-8">
             <button onClick={() => { setStep('lobby'); setIsConnecting(false); }} className="text-sm text-white/30 hover:text-white/80 underline tracking-widest transition-colors">
@@ -524,7 +536,7 @@ export default function WeUsApp() {
         </div>
       )}
 
-      {/* 기존 CHAT 및 리포트/신고 모달 UI 유지 */}
+      {/* 기존 CHAT 및 리포트/신고 모달 UI는 완벽히 동일하게 유지됩니다 */}
       {step === 'chat' && (
         <div className="w-full max-w-lg h-[85vh] bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative z-10">
           
@@ -645,7 +657,7 @@ export default function WeUsApp() {
               <div className="flex items-center gap-3">
                 <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="font-semibold text-sm text-white/90 truncate">
-                  {isSingleMode ? `AI 싱글: ${selectedTopic}` : `${selectedTopic}`}
+                  {isSingleMode ? `AI 싱글: ${activeCard.title}` : `${activeCard.title}`}
                 </span>
                 <div className="flex items-center gap-1">
                   {!isSingleMode && (
