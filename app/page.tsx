@@ -5,8 +5,10 @@ import { io, Socket } from 'socket.io-client';
 
 const SERVER_URL = 'https://we-us-backend.onrender.com';
 
+// ★ 수정: 일상 라운지를 맨 앞으로 빼고 기본값으로 세팅
 const LOBBY_CATEGORIES = [
-  { id: 'lang', icon: '🌍', title: '어학 튜터링', desc: 'AI 튜터 및 글로벌 유저와 실전 회화', options: ['한국어', '영어', '일본어', '프랑스어'] },
+  { id: 'daily', icon: '☕', title: '일상 라운지', desc: '부담 없는 스몰토크와 편안한 일상 대화', options: ['가벼운 스몰토크', '오늘 하루의 하이라이트', '요즘 꽂힌 취미 이야기'] },
+  { id: 'lang', icon: '🌍', title: '어학 튜터링', desc: 'AI 튜터 및 글로벌 유저와 실전 회화', options: ['영어', '일본어', '프랑스어', '한국어(외국인용)'] },
   { id: 'deep', icon: '🍷', title: '딥 토크 살롱', desc: '일상에서 나누기 힘든 철학적, 지적 대화', options: ['최악의 이불킥 경험', '자본주의 생존기', '100억 받기 VS 무병장수'] },
   { id: 'roleplay', icon: '🎭', title: '도파민 롤플레잉', desc: '스트레스 해소용 익명 상황극', options: ['진상손님 방어전 (알바생)', '압박 면접 (지원자)'] }
 ];
@@ -24,8 +26,9 @@ export default function WeUsApp() {
   const [isHost, setIsHost] = useState(false); 
   const [isSingleMode, setIsSingleMode] = useState(false); 
   
-  const [selectedCategory, setSelectedCategory] = useState<string>('lang');
-  const [selectedTopic, setSelectedTopic] = useState<string>('한국어');
+  // ★ 수정: 초기 진입 시 일상 라운지가 먼저 뜨도록 변경
+  const [selectedCategory, setSelectedCategory] = useState<string>('daily');
+  const [selectedTopic, setSelectedTopic] = useState<string>('가벼운 스몰토크');
 
   const [hasVoted, setHasVoted] = useState(false);
   const [partnerVoted, setPartnerVoted] = useState(false);
@@ -138,7 +141,6 @@ export default function WeUsApp() {
         setReportData("대화 내용이 너무 짧거나 시스템 오류로 리포트를 발급할 수 없습니다.");
       } else {
         setReportData(data.reportText);
-        // 리포트 발급 성공 시 백그라운드에서 마이페이지 데이터 갱신 요청
         if (userId) socketRef.current?.emit('request_my_records', userId);
       }
     });
@@ -250,13 +252,8 @@ export default function WeUsApp() {
 
   const currentOptions = LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.options || [];
 
-  // ==========================================
-  // ★ 진화: 빅데이터 시각화를 위한 동적 데이터 연산
-  // ==========================================
-  // 1. 누적 플레이 시간 계산 (대화 1회당 평균 3분(0.05시간)으로 산정)
   const totalPlayHours = (myReports.length * 3 / 60).toFixed(1);
 
-  // 2. 평균 스탯 계산
   let avgLogic = 0, avgLinguistics = 0, avgEmpathy = 0;
   if (myReports.length > 0) {
     let sumLogic = 0, sumLinguistics = 0, sumEmpathy = 0;
@@ -276,22 +273,30 @@ export default function WeUsApp() {
     }
   }
 
-  // 3. 주요 페르소나 및 티어 판별
+  // ★ 수정: MBTI형 다채로운 페르소나 조합 로직
   let personaTitle = "데이터 수집 중";
   let personaDesc = "첫 대화를 완료하고 페르소나를 확인하세요.";
   let tier = "Unranked";
   
   if (myReports.length > 0) {
-    const maxStat = Math.max(avgLogic, avgLinguistics, avgEmpathy);
-    if (maxStat === avgLogic) {
-      personaTitle = "냉철한 논리술사";
-      personaDesc = "이성과 논리를 바탕으로 대화를 주도함";
-    } else if (maxStat === avgLinguistics) {
-      personaTitle = "우아한 언어마술사";
-      personaDesc = "정교하고 유창한 어휘로 상대를 매료시킴";
+    if (avgLogic >= 75 && avgEmpathy <= 50) {
+      personaTitle = "🧊 차가운 팩트폭격기";
+      personaDesc = "감정보다는 철저한 논리와 팩트로 승부함";
+    } else if (avgLogic >= 70 && avgEmpathy > 50) {
+      personaTitle = "⚖️ 따뜻한 조언자";
+      personaDesc = "명확한 논리 위에 다정한 배려를 얹음";
+    } else if (avgLinguistics >= 75 && avgLogic <= 60) {
+      personaTitle = "✨ 감성적인 음유시인";
+      personaDesc = "아름답고 정교한 어휘로 감성을 전달함";
+    } else if (avgEmpathy >= 75 && avgLogic <= 60) {
+      personaTitle = "🕊️ 천사표 리스너";
+      personaDesc = "압도적인 공감 능력으로 상대의 무장해제를 이끌어냄";
+    } else if (avgLogic >= 80 && avgLinguistics >= 80) {
+      personaTitle = "👑 무자비한 토론 제왕";
+      personaDesc = "빈틈없는 논리와 유창한 어휘로 대화를 지배함";
     } else {
-      personaTitle = "따뜻한 경청자";
-      personaDesc = "높은 공감 지수로 상대의 마음을 이끌어냄";
+      personaTitle = "🌱 성장하는 소통러";
+      personaDesc = "다양한 대화 방식을 균형 있게 흡수하며 발전 중";
     }
 
     const overallScore = (avgLogic + avgLinguistics + avgEmpathy) / 3;
@@ -306,9 +311,6 @@ export default function WeUsApp() {
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/10 blur-[120px] rounded-full pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-900/10 blur-[120px] rounded-full pointer-events-none" />
 
-      {/* ============================== */}
-      {/* 10년 생존 비전: 타임리스 빅데이터 대시보드 UI (실제 데이터 연동) */}
-      {/* ============================== */}
       {step === 'lobby' && activeTab === 'myRecord' && (
         <div className="w-full max-w-lg h-[85vh] bg-[#080808]/90 backdrop-blur-2xl border border-white/5 rounded-[2rem] p-8 flex flex-col z-10 shadow-2xl relative overflow-hidden">
           
@@ -397,9 +399,6 @@ export default function WeUsApp() {
         </div>
       )}
 
-      {/* ============================== */}
-      {/* 기존 LOBBY 화면 */}
-      {/* ============================== */}
       {step === 'lobby' && activeTab === 'lobby' && (
         <div className="text-center max-w-lg w-full space-y-8 z-10 h-[85vh] flex flex-col justify-center pb-16">
           <div className="space-y-2 mb-4">
@@ -409,7 +408,7 @@ export default function WeUsApp() {
             <p className="text-gray-400 font-light tracking-widest text-xs">우리가 되어가는 3분의 시간</p>
           </div>
           
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             {LOBBY_CATEGORIES.map(cat => (
               <button
                 key={cat.id}
@@ -417,21 +416,21 @@ export default function WeUsApp() {
                   setSelectedCategory(cat.id);
                   setSelectedTopic(cat.options[0]); 
                 }}
-                className={`p-4 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all border ${
+                className={`p-3 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all border ${
                   selectedCategory === cat.id 
                   ? 'bg-white/10 border-white/30 shadow-[0_0_15px_rgba(255,255,255,0.1)]' 
                   : 'bg-white/[0.02] border-white/5 opacity-50 hover:opacity-100'
                 }`}
               >
-                <span className="text-2xl mb-1">{cat.icon}</span>
-                <span className="text-xs font-bold tracking-wider text-white">{cat.title}</span>
+                <span className="text-xl mb-1">{cat.icon}</span>
+                <span className="text-[10px] font-bold tracking-wider text-white whitespace-nowrap">{cat.title}</span>
               </button>
             ))}
           </div>
 
           <div className="bg-white/[0.03] backdrop-blur-xl p-6 rounded-3xl border border-white/5 shadow-2xl space-y-6">
             <div className="flex flex-col text-left space-y-3">
-              <label className="text-xs text-emerald-400 uppercase tracking-widest font-bold">
+              <label className="text-[11px] text-emerald-400 uppercase tracking-widest font-bold">
                 {LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.desc}
               </label>
               <select 
@@ -454,7 +453,7 @@ export default function WeUsApp() {
                   socketRef.current?.emit('join_queue', { lang: '공통', topic: selectedTopic }); 
                   setStep('waiting');
                 }}
-                className="w-full bg-white text-black font-extrabold tracking-wide py-4 rounded-xl hover:bg-gray-200 transition-all shadow-lg flex justify-center items-center gap-2"
+                className="w-full bg-white text-black font-extrabold tracking-wide py-4 rounded-xl hover:bg-gray-200 transition-all shadow-lg flex justify-center items-center gap-2 text-sm"
               >
                 {isConnecting && !isSingleMode ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"/> : null}
                 익명 매칭 시작하기
@@ -466,7 +465,7 @@ export default function WeUsApp() {
                   setIsSingleMode(true);
                   socketRef.current?.emit('start_ai_chat', selectedTopic); 
                 }}
-                className="w-full bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-4 rounded-xl border border-white/10 transition-all flex justify-center items-center gap-2"
+                className="w-full bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-4 rounded-xl border border-white/10 transition-all flex justify-center items-center gap-2 text-sm"
               >
                 {isConnecting && isSingleMode ? <div className="w-4 h-4 border-2 border-white/50 border-t-transparent rounded-full animate-spin"/> : null}
                 AI와 먼저 연습하기
