@@ -138,6 +138,8 @@ export default function WeUsApp() {
         setReportData("대화 내용이 너무 짧거나 시스템 오류로 리포트를 발급할 수 없습니다.");
       } else {
         setReportData(data.reportText);
+        // 리포트 발급 성공 시 백그라운드에서 마이페이지 데이터 갱신 요청
+        if (userId) socketRef.current?.emit('request_my_records', userId);
       }
     });
 
@@ -248,13 +250,64 @@ export default function WeUsApp() {
 
   const currentOptions = LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.options || [];
 
+  // ==========================================
+  // ★ 진화: 빅데이터 시각화를 위한 동적 데이터 연산
+  // ==========================================
+  // 1. 누적 플레이 시간 계산 (대화 1회당 평균 3분(0.05시간)으로 산정)
+  const totalPlayHours = (myReports.length * 3 / 60).toFixed(1);
+
+  // 2. 평균 스탯 계산
+  let avgLogic = 0, avgLinguistics = 0, avgEmpathy = 0;
+  if (myReports.length > 0) {
+    let sumLogic = 0, sumLinguistics = 0, sumEmpathy = 0;
+    let validCount = 0;
+    myReports.forEach(report => {
+      if (report.stats) {
+        sumLogic += report.stats.logic || 50;
+        sumLinguistics += report.stats.linguistics || 50;
+        sumEmpathy += report.stats.empathy || 50;
+        validCount++;
+      }
+    });
+    if (validCount > 0) {
+      avgLogic = Math.round(sumLogic / validCount);
+      avgLinguistics = Math.round(sumLinguistics / validCount);
+      avgEmpathy = Math.round(sumEmpathy / validCount);
+    }
+  }
+
+  // 3. 주요 페르소나 및 티어 판별
+  let personaTitle = "데이터 수집 중";
+  let personaDesc = "첫 대화를 완료하고 페르소나를 확인하세요.";
+  let tier = "Unranked";
+  
+  if (myReports.length > 0) {
+    const maxStat = Math.max(avgLogic, avgLinguistics, avgEmpathy);
+    if (maxStat === avgLogic) {
+      personaTitle = "냉철한 논리술사";
+      personaDesc = "이성과 논리를 바탕으로 대화를 주도함";
+    } else if (maxStat === avgLinguistics) {
+      personaTitle = "우아한 언어마술사";
+      personaDesc = "정교하고 유창한 어휘로 상대를 매료시킴";
+    } else {
+      personaTitle = "따뜻한 경청자";
+      personaDesc = "높은 공감 지수로 상대의 마음을 이끌어냄";
+    }
+
+    const overallScore = (avgLogic + avgLinguistics + avgEmpathy) / 3;
+    if (overallScore >= 90) tier = "Top 1%";
+    else if (overallScore >= 80) tier = "Top 10%";
+    else if (overallScore >= 70) tier = "Top 30%";
+    else tier = "Top 50%";
+  }
+
   return (
     <div className="min-h-screen bg-[#050505] text-gray-100 font-sans flex flex-col items-center justify-center p-4 relative overflow-hidden">
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/10 blur-[120px] rounded-full pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-900/10 blur-[120px] rounded-full pointer-events-none" />
 
       {/* ============================== */}
-      {/* ★ 10년 생존 비전: 타임리스 빅데이터 대시보드 UI (RECORD 탭) */}
+      {/* 10년 생존 비전: 타임리스 빅데이터 대시보드 UI (실제 데이터 연동) */}
       {/* ============================== */}
       {step === 'lobby' && activeTab === 'myRecord' && (
         <div className="w-full max-w-lg h-[85vh] bg-[#080808]/90 backdrop-blur-2xl border border-white/5 rounded-[2rem] p-8 flex flex-col z-10 shadow-2xl relative overflow-hidden">
@@ -267,57 +320,54 @@ export default function WeUsApp() {
             <div className="text-right">
               <span className="text-[10px] text-white/40 tracking-widest uppercase block mb-1">Communication Tier</span>
               <span className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-blue-500">
-                Top 12%
+                {tier}
               </span>
             </div>
           </div>
 
-          {/* 종합 스탯 (Mockup for future backend connection) */}
           <div className="grid grid-cols-2 gap-3 mb-8">
             <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 flex flex-col justify-between hover:bg-white/[0.04] transition-colors">
               <span className="text-[10px] text-white/40 tracking-widest uppercase mb-2">누적 지적 자산</span>
-              <span className="text-2xl font-light text-white mb-1">14.2<span className="text-sm text-white/30 ml-1">hrs</span></span>
+              <span className="text-2xl font-light text-white mb-1">{totalPlayHours}<span className="text-sm text-white/30 ml-1">hrs</span></span>
               <span className="text-xs text-white/50">총 대화 시간</span>
             </div>
             <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 flex flex-col justify-between hover:bg-white/[0.04] transition-colors">
               <span className="text-[10px] text-white/40 tracking-widest uppercase mb-2">주요 페르소나</span>
-              <span className="text-sm font-semibold text-emerald-300 mb-1">냉철한 논리술사</span>
-              <span className="text-[10px] text-white/50 leading-tight">이성과 논리를 바탕으로 대화를 주도함</span>
+              <span className="text-sm font-semibold text-emerald-300 mb-1">{personaTitle}</span>
+              <span className="text-[10px] text-white/50 leading-tight">{personaDesc}</span>
             </div>
           </div>
 
-          {/* 능력치 막대 그래프 (미니멀 UI) */}
           <div className="space-y-5 mb-8">
             <div>
               <div className="flex justify-between text-[11px] font-medium text-white/60 mb-1.5 uppercase tracking-wider">
                 <span>논리적 압도력 (Logic)</span>
-                <span>92 / 100</span>
+                <span>{myReports.length > 0 ? avgLogic : '-'} / 100</span>
               </div>
               <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
-                <div className="h-full bg-blue-500 w-[92%] shadow-[0_0_10px_rgba(59,130,246,0.5)]"></div>
+                <div className="h-full bg-blue-500 transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(59,130,246,0.5)]" style={{ width: `${myReports.length > 0 ? avgLogic : 0}%` }}></div>
               </div>
             </div>
             <div>
               <div className="flex justify-between text-[11px] font-medium text-white/60 mb-1.5 uppercase tracking-wider">
                 <span>언어적 정교함 (Linguistics)</span>
-                <span>85 / 100</span>
+                <span>{myReports.length > 0 ? avgLinguistics : '-'} / 100</span>
               </div>
               <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
-                <div className="h-full bg-emerald-500 w-[85%] shadow-[0_0_10px_rgba(16,185,129,0.5)]"></div>
+                <div className="h-full bg-emerald-500 transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(16,185,129,0.5)]" style={{ width: `${myReports.length > 0 ? avgLinguistics : 0}%` }}></div>
               </div>
             </div>
             <div>
               <div className="flex justify-between text-[11px] font-medium text-white/60 mb-1.5 uppercase tracking-wider">
                 <span>공감 및 경청 (Empathy)</span>
-                <span>45 / 100</span>
+                <span>{myReports.length > 0 ? avgEmpathy : '-'} / 100</span>
               </div>
               <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
-                <div className="h-full bg-purple-500 w-[45%] shadow-[0_0_10px_rgba(168,85,247,0.5)]"></div>
+                <div className="h-full bg-purple-500 transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(168,85,247,0.5)]" style={{ width: `${myReports.length > 0 ? avgEmpathy : 0}%` }}></div>
               </div>
             </div>
           </div>
 
-          {/* 기록 리스트 (노션/미디엄 스타일) */}
           <div className="flex-1 overflow-y-auto space-y-0 -mx-4 px-4 pb-20 scrollbar-hide">
             <h3 className="text-[10px] text-white/30 tracking-widest uppercase mb-4 sticky top-0 bg-[#080808]/90 backdrop-blur-md py-2">
               최근 인사이트 노트
@@ -331,7 +381,7 @@ export default function WeUsApp() {
                 <div key={idx} className="border-b border-white/5 py-5 last:border-0 group cursor-pointer">
                   <div className="flex justify-between items-baseline mb-2">
                     <span className={`text-[11px] font-bold tracking-widest uppercase ${report.type === 'single' ? 'text-emerald-500/80' : 'text-blue-500/80'}`}>
-                      {report.type === 'single' ? `TUTORING • ${report.lang || 'AI'}` : `SALON • ${report.topic}`}
+                      {report.type === 'single' ? `TUTORING • ${report.topic || 'AI'}` : `SALON • ${report.topic}`}
                     </span>
                     <span className="text-[9px] text-white/20 font-mono">
                       {new Date(report.createdAt).toLocaleDateString()}
@@ -461,7 +511,7 @@ export default function WeUsApp() {
         </div>
       )}
 
-      {/* 기존 CHAT 및 리포트/신고 모달 UI는 완벽히 동일하게 유지됩니다. */}
+      {/* 기존 CHAT 및 리포트/신고 모달 UI 유지 */}
       {step === 'chat' && (
         <div className="w-full max-w-lg h-[85vh] bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative z-10">
           
