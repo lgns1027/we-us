@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
+import html2canvas from 'html2canvas'; // ★ 추가된 이미지 렌더링 라이브러리
 
 const SERVER_URL = 'https://we-us-backend.onrender.com';
 
-// ★ 수정: 일상 라운지를 맨 앞으로 빼고 기본값으로 세팅
 const LOBBY_CATEGORIES = [
   { id: 'daily', icon: '☕', title: '일상 라운지', desc: '부담 없는 스몰토크와 편안한 일상 대화', options: ['가벼운 스몰토크', '오늘 하루의 하이라이트', '요즘 꽂힌 취미 이야기'] },
   { id: 'lang', icon: '🌍', title: '어학 튜터링', desc: 'AI 튜터 및 글로벌 유저와 실전 회화', options: ['영어', '일본어', '프랑스어', '한국어(외국인용)'] },
@@ -26,7 +26,6 @@ export default function WeUsApp() {
   const [isHost, setIsHost] = useState(false); 
   const [isSingleMode, setIsSingleMode] = useState(false); 
   
-  // ★ 수정: 초기 진입 시 일상 라운지가 먼저 뜨도록 변경
   const [selectedCategory, setSelectedCategory] = useState<string>('daily');
   const [selectedTopic, setSelectedTopic] = useState<string>('가벼운 스몰토크');
 
@@ -38,6 +37,10 @@ export default function WeUsApp() {
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [reportData, setReportData] = useState<string | null>(null);
+  
+  // ★ 추가: 공유하기 위해 화면을 캡처할 타겟 Ref
+  const reportCardRef = useRef<HTMLDivElement>(null); 
+  const [isCapturing, setIsCapturing] = useState(false);
 
   const [showAd, setShowAd] = useState(false);
   const [adCountdown, setAdCountdown] = useState(3);
@@ -235,18 +238,45 @@ export default function WeUsApp() {
     }
   };
 
-  const handleShare = async () => {
-    if (navigator.share) {
-      try {
-        await navigator.share({
-          title: 'WE US - AI가 분석한 내 대화',
-          text: `[WE US 성적표]\n\n${reportData}\n\n👉 익명으로 대화해보기: https://we-us.online`,
-        });
-      } catch (error) {
-        console.log('공유가 취소되었습니다.');
-      }
-    } else {
-      alert('지원하지 않는 기기입니다. 리포트 화면을 캡처해서 공유해보세요!');
+  // ★ 혁신: 이미지 캡처 후 인스타 스토리(또는 네이티브) 공유 로직
+  const handleShareCard = async () => {
+    if (!reportCardRef.current) return;
+    setIsCapturing(true);
+
+    try {
+      // html2canvas로 현재 선택된 영역을 고화질 렌더링
+      const canvas = await html2canvas(reportCardRef.current, {
+        scale: 2, 
+        backgroundColor: '#0a0a0a', 
+        useCORS: true
+      });
+
+      // 캔버스를 이미지 파일(Blob)로 변환
+      canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        
+        // Web Share API v2 지원 기기 (주로 모바일)
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: [new File([blob], 'weus_card.png', { type: 'image/png' })] })) {
+          const file = new File([blob], 'weus_persona.png', { type: 'image/png' });
+          await navigator.share({
+            title: 'WE US - 나의 대화 페르소나',
+            text: '나의 소통 능력 티어와 페르소나를 확인해보세요! 👉 we-us.online',
+            files: [file],
+          });
+        } else {
+          // PC 등 지원하지 않는 기기는 이미지 다운로드로 우회
+          const link = document.createElement('a');
+          link.href = canvas.toDataURL('image/png');
+          link.download = 'weus_persona.png';
+          link.click();
+          alert('페르소나 카드가 사진첩에 저장되었습니다. 인스타그램에 바로 공유해 보세요!');
+        }
+      }, 'image/png');
+    } catch (err) {
+      console.error('공유 캡처 에러:', err);
+      alert('이미지 생성 중 오류가 발생했습니다.');
+    } finally {
+      setIsCapturing(false);
     }
   };
 
@@ -273,7 +303,6 @@ export default function WeUsApp() {
     }
   }
 
-  // ★ 수정: MBTI형 다채로운 페르소나 조합 로직
   let personaTitle = "데이터 수집 중";
   let personaDesc = "첫 대화를 완료하고 페르소나를 확인하세요.";
   let tier = "Unranked";
@@ -311,6 +340,9 @@ export default function WeUsApp() {
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/10 blur-[120px] rounded-full pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-900/10 blur-[120px] rounded-full pointer-events-none" />
 
+      {/* ============================== */}
+      {/* 10년 생존 비전: 타임리스 빅데이터 대시보드 UI (RECORD 탭) */}
+      {/* ============================== */}
       {step === 'lobby' && activeTab === 'myRecord' && (
         <div className="w-full max-w-lg h-[85vh] bg-[#080808]/90 backdrop-blur-2xl border border-white/5 rounded-[2rem] p-8 flex flex-col z-10 shadow-2xl relative overflow-hidden">
           
@@ -399,6 +431,9 @@ export default function WeUsApp() {
         </div>
       )}
 
+      {/* ============================== */}
+      {/* 기존 LOBBY 화면 */}
+      {/* ============================== */}
       {step === 'lobby' && activeTab === 'lobby' && (
         <div className="text-center max-w-lg w-full space-y-8 z-10 h-[85vh] flex flex-col justify-center pb-16">
           <div className="space-y-2 mb-4">
@@ -583,30 +618,47 @@ export default function WeUsApp() {
 
           {reportData && !showAd && (
             <div className="absolute inset-0 bg-[#050505]/95 flex flex-col items-center justify-center z-50 p-6 backdrop-blur-xl">
-              <div className="bg-white/[0.02] border border-white/10 rounded-3xl p-8 w-full max-w-sm shadow-2xl flex flex-col">
-                <h2 className="text-xl font-light tracking-widest text-center mb-8 text-white">
-                  {isSingleMode ? 'PERSONAL REPORT' : 'CHEMISTRY REPORT'}
+              {/* ★ 혁신: 이미지 캡처 대상 영역 (ref=reportCardRef) */}
+              <div 
+                ref={reportCardRef}
+                className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-8 w-full max-w-sm shadow-2xl flex flex-col"
+              >
+                <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4">
+                   <h2 className="text-xs font-bold tracking-[0.3em] text-white/50">WE US REPORT</h2>
+                   <span className="text-[10px] text-emerald-400 border border-emerald-400/30 px-2 py-1 rounded-full">{tier}</span>
+                </div>
+                
+                <h2 className="text-xl font-light tracking-widest text-center mb-6 text-white">
+                  {isSingleMode ? 'PERSONAL TUTORING' : 'CHEMISTRY ANALYSIS'}
                 </h2>
-                <div className="space-y-4 text-sm text-gray-300 whitespace-pre-line leading-relaxed flex-1 bg-black/40 p-6 rounded-2xl border border-white/5">
+                
+                <div className="space-y-4 text-sm text-gray-300 whitespace-pre-line leading-relaxed flex-1 bg-white/[0.02] p-6 rounded-2xl border border-white/5">
                   {reportData}
                 </div>
-                <div className="mt-8 flex gap-3">
-                  <button
-                    onClick={handleShare}
-                    className="flex-1 bg-white text-black font-bold tracking-wide py-3.5 rounded-xl hover:bg-gray-200 transition"
-                  >
-                    공유하기
-                  </button>
-                  <button
-                    onClick={() => {
-                      setReportData(null);
-                      setStep('lobby');
-                    }}
-                    className="px-6 bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-3.5 rounded-xl border border-white/10 transition"
-                  >
-                    로비
-                  </button>
+                
+                <div className="mt-6 text-center text-[10px] text-white/30 font-mono">
+                  we-us.online
                 </div>
+              </div>
+
+              {/* 하단 액션 버튼들 (캡처 시에는 안 보이게 밖으로 뺌) */}
+              <div className="w-full max-w-sm mt-6 flex gap-3 px-2">
+                <button
+                  onClick={handleShareCard}
+                  disabled={isCapturing}
+                  className="flex-1 bg-white text-black font-bold tracking-wide py-3.5 rounded-xl hover:bg-gray-200 transition flex justify-center items-center gap-2"
+                >
+                  {isCapturing ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"/> : '📸 인스타용 캡처'}
+                </button>
+                <button
+                  onClick={() => {
+                    setReportData(null);
+                    setStep('lobby');
+                  }}
+                  className="px-6 bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-3.5 rounded-xl border border-white/10 transition"
+                >
+                  로비
+                </button>
               </div>
             </div>
           )}
