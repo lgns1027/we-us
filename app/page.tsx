@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import html2canvas from 'html2canvas'; 
-import { useSession, signIn, signOut } from 'next-auth/react'; 
 
 const SERVER_URL = 'https://we-us-backend.onrender.com';
 
@@ -15,8 +14,6 @@ const LOBBY_CATEGORIES = [
 ];
 
 export default function WeUsApp() {
-  const { data: session, status } = useSession();
-  
   const [activeTab, setActiveTab] = useState<'lobby' | 'myRecord'>('lobby');
   const [userId, setUserId] = useState<string>('');
   const [myReports, setMyReports] = useState<any[]>([]); 
@@ -67,27 +64,22 @@ export default function WeUsApp() {
     messagesRef.current = messages;
   }, [messages]);
 
-  // ★ 게스트 UUID와 구글 이메일 유동적 병합 로직
+  // ★ 구글 로그인 제거 및 기존 LocalStorage 방식 완벽 복구
   useEffect(() => {
-    let storedId = localStorage.getItem('weus_guest_id');
+    let storedId = localStorage.getItem('weus_user_id');
     if (!storedId) {
-      storedId = 'guest_' + Math.random().toString(36).substr(2, 9);
-      localStorage.setItem('weus_guest_id', storedId);
+      storedId = 'user_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+      localStorage.setItem('weus_user_id', storedId);
     }
-    // 로그인이 되어 있으면 이메일을 우선 사용, 아니면 게스트 ID 사용
-    if (session?.user?.email) {
-      setUserId(session.user.email);
-    } else {
-      setUserId(storedId);
-    }
-  }, [session]);
+    setUserId(storedId);
+  }, []);
 
   useEffect(() => {
-    // 로딩 중이거나 ID가 아직 세팅 안 됐으면 대기
-    if (status === 'loading' || !userId) return; 
+    if (!userId) return; // ID 세팅 전 대기
 
     socketRef.current = io(SERVER_URL);
 
+    // ★ 인사이트 노트를 받아오는 소켓 리스너
     socketRef.current.on('receive_my_records', (records) => {
       setMyReports(records);
     });
@@ -160,8 +152,9 @@ export default function WeUsApp() {
     });
 
     return () => { socketRef.current?.disconnect(); };
-  }, [status, userId]); 
+  }, [userId]); // userId가 세팅된 후에만 실행
 
+  // 마이페이지 진입 시 강제 리포트 조회
   useEffect(() => {
     if (activeTab === 'myRecord' && userId && socketRef.current) {
       socketRef.current.emit('request_my_records', userId);
@@ -325,7 +318,7 @@ export default function WeUsApp() {
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-900/10 blur-[120px] rounded-full pointer-events-none" />
 
       {/* ============================== */}
-      {/* RECORD 탭: 게스트 상태일 때 로그인 유도 배너 추가 */}
+      {/* RECORD 탭 */}
       {/* ============================== */}
       {step === 'lobby' && activeTab === 'myRecord' && (
         <div className="w-full max-w-lg h-[85vh] bg-[#080808]/90 backdrop-blur-2xl border border-white/5 rounded-[2rem] p-8 flex flex-col z-10 shadow-2xl relative overflow-hidden">
@@ -334,36 +327,15 @@ export default function WeUsApp() {
             <div>
               <h2 className="text-sm font-semibold tracking-[0.3em] text-white/50 mb-1">ANALYTICS</h2>
               <p className="text-[10px] text-white/30 tracking-widest truncate max-w-[150px]">
-                {status === 'authenticated' ? session.user?.name || session.user?.email : `Guest (${userId})`}
+                {userId}
               </p>
             </div>
             <div className="text-right flex flex-col items-end gap-2">
               <span className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-blue-500">
                 {tier}
               </span>
-              {status === 'authenticated' && (
-                <button onClick={() => signOut()} className="text-[9px] border border-white/20 text-white/40 px-2 py-1 rounded-md hover:bg-white/10 transition-colors">
-                  로그아웃
-                </button>
-              )}
             </div>
           </div>
-
-          {/* ★ 비로그인 상태일 때 데이터 보존 유도 배너 */}
-          {status === 'unauthenticated' && (
-            <div className="mb-6 bg-white/[0.03] border border-emerald-500/30 rounded-2xl p-4 flex flex-col gap-3">
-              <p className="text-xs text-white/70 leading-relaxed text-center">
-                현재 분석 데이터는 브라우저에 임시 저장되어 있습니다.<br/>
-                <span className="text-emerald-400 font-bold">10년간 영구 보존</span>하려면 계정을 연동해 주세요.
-              </p>
-              <button 
-                onClick={() => signIn('google')}
-                className="w-full py-3 bg-white text-black rounded-xl text-xs font-bold tracking-wider hover:bg-gray-200 transition flex items-center justify-center gap-2"
-              >
-                Google 계정으로 영구 보존하기
-              </button>
-            </div>
-          )}
 
           <div className="grid grid-cols-2 gap-3 mb-6">
             <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 flex flex-col justify-between hover:bg-white/[0.04] transition-colors">
@@ -408,6 +380,7 @@ export default function WeUsApp() {
             </div>
           </div>
 
+          {/* ★ 인사이트 노트 출력부 */}
           <div className="flex-1 overflow-y-auto space-y-0 -mx-4 px-4 pb-20 scrollbar-hide">
             <h3 className="text-[10px] text-white/30 tracking-widest uppercase mb-4 sticky top-0 bg-[#080808]/90 backdrop-blur-md py-2">
               최근 인사이트 노트
@@ -551,6 +524,7 @@ export default function WeUsApp() {
         </div>
       )}
 
+      {/* 기존 CHAT 및 리포트/신고 모달 UI 유지 */}
       {step === 'chat' && (
         <div className="w-full max-w-lg h-[85vh] bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative z-10">
           
