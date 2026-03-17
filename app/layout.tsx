@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "WE US | 우리가 되어가는 5분의 시간",
-  description: "실수해도 괜찮아, 5분 뒤면 사라질 인연이니까. 익명 실시간 대화 서비스",
+  title: "WE US | 우리가 되어가는 3분의 시간",
+  description: "실수해도 괜찮아, 3분 뒤면 사라질 인연이니까. 익명 실시간 대화 서비스",
 };
 
 export default function RootLayout({
