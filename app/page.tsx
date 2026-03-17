@@ -6,21 +6,30 @@ import html2canvas from 'html2canvas';
 
 const SERVER_URL = 'https://we-us-backend.onrender.com';
 
-// ★ 혁신: 복잡한 카테고리를 버리고, 가장 자극적인 단일 카드(Card) 형태로 데이터 평탄화
-const TOPIC_CARDS = [
-  { icon: '🍷', title: '100억 받기 VS 무병장수', desc: '논리가 통하지 않는 극한의 밸런스 게임' },
-  { icon: '🎭', title: '진상손님 방어전 (알바생)', desc: '말도 안되는 환불 요구를 방어하세요' },
-  { icon: '👔', title: '압박 면접 (지원자)', desc: '당신의 멘탈을 털어버릴 수석 면접관' },
-  { icon: '☕', title: '가벼운 스몰토크', desc: '부담 없이 나누는 오늘 하루 이야기' },
-  { icon: '🌍', title: '영어', desc: '실수해도 괜찮은 3분 실전 영어 회화' }
+// ★ 복구 완료: 대표님의 오리지널 기획인 4대 카테고리 시스템
+const LOBBY_CATEGORIES = [
+  { id: 'daily', icon: '☕', title: '일상 라운지', desc: '부담 없는 스몰토크와 편안한 일상 대화', options: ['가벼운 스몰토크', '오늘 하루의 하이라이트', '요즘 꽂힌 취미 이야기'] },
+  { id: 'lang', icon: '🌍', title: '어학 튜터링', desc: 'AI 튜터 및 글로벌 유저와 실전 회화', options: ['영어', '일본어', '프랑스어', '한국어(외국인용)'] },
+  { id: 'deep', icon: '🍷', title: '딥 토크 살롱', desc: '일상에서 나누기 힘든 철학적, 지적 대화', options: ['최악의 이불킥 경험', '자본주의 생존기', '100억 받기 VS 무병장수'] },
+  { id: 'roleplay', icon: '🎭', title: '도파민 롤플레잉', desc: '스트레스 해소용 익명 상황극', options: ['진상손님 방어전 (알바생)', '압박 면접 (지원자)'] }
 ];
+
+// ★ 핵심 아키텍처: 대립각이 필요한 주제들의 역할 매핑 테이블
+const ROLE_MAP: Record<string, { roleA: string, roleB: string }> = {
+  '100억 받기 VS 무병장수': { roleA: '100억 선택', roleB: '무병장수 선택' },
+  '자본주의 생존기': { roleA: '자본주의 찬성론자', roleB: '자본주의 회의론자' },
+  '최악의 이불킥 경험': { roleA: '썰 푸는 화자', roleB: '공감하는 리스너' },
+  '진상손님 방어전 (알바생)': { roleA: '알바생', roleB: '진상 손님' },
+  '압박 면접 (지원자)': { roleA: '지원자', roleB: '수석 면접관' }
+};
 
 export default function WeUsApp() {
   const [activeTab, setActiveTab] = useState<'lobby' | 'myRecord'>('lobby');
   const [userId, setUserId] = useState<string>('');
   const [myReports, setMyReports] = useState<any[]>([]); 
 
-  const [step, setStep] = useState<'lobby' | 'waiting' | 'chat'>('lobby');
+  // 스텝에 'role_select' 추가
+  const [step, setStep] = useState<'lobby' | 'role_select' | 'waiting' | 'chat'>('lobby');
   const [timeLeft, setTimeLeft] = useState(180); 
   const [messages, setMessages] = useState<{ sender: string; text: string }[]>([]);
   const [inputText, setInputText] = useState('');
@@ -28,8 +37,12 @@ export default function WeUsApp() {
   const [isHost, setIsHost] = useState(false); 
   const [isSingleMode, setIsSingleMode] = useState(false); 
   
-  // ★ 혁신: 원 카드 스와이프 UI를 위한 상태 관리
-  const [currentCardIndex, setCurrentCardIndex] = useState(0);
+  const [selectedCategory, setSelectedCategory] = useState<string>('daily');
+  const [selectedTopic, setSelectedTopic] = useState<string>('가벼운 스몰토크');
+  
+  // 내 역할과 상대방 역할을 저장하는 state
+  const [myRole, setMyRole] = useState<string>('');
+  const [partnerRole, setPartnerRole] = useState<string>('');
 
   const [hasVoted, setHasVoted] = useState(false);
   const [partnerVoted, setPartnerVoted] = useState(false);
@@ -56,18 +69,17 @@ export default function WeUsApp() {
   const lastInteractionTime = useRef<number>(Date.now());
   const messagesRef = useRef(messages);
   
-  // 현재 선택된 주제를 Ref에 저장 (방폭 방지용)
-  const currentTopic = TOPIC_CARDS[currentCardIndex].title;
-  const stateRefs = useRef({ currentTopic, isAnalyzing, reportData, showAd });
+  const stateRefs = useRef({ selectedTopic, isAnalyzing, reportData, showAd });
 
   useEffect(() => {
-    stateRefs.current = { currentTopic, isAnalyzing, reportData, showAd };
-  }, [currentTopic, isAnalyzing, reportData, showAd]);
+    stateRefs.current = { selectedTopic, isAnalyzing, reportData, showAd };
+  }, [selectedTopic, isAnalyzing, reportData, showAd]);
 
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
+  // 구글 로그인 제거, 순수 LocalStorage 기반 UUID 발급 복구 (에러 방지)
   useEffect(() => {
     let storedId = localStorage.getItem('weus_user_id');
     if (!storedId) {
@@ -78,7 +90,7 @@ export default function WeUsApp() {
   }, []);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId) return; 
 
     socketRef.current = io(SERVER_URL);
 
@@ -88,9 +100,11 @@ export default function WeUsApp() {
 
     socketRef.current.on('matched', (data) => {
       setIsConnecting(false); 
-      const matchRoom = data.roomName || data.roomId; 
-      setRoom(matchRoom);
+      setRoom(data.roomName || data.roomId);
       setParticipantCount(data.participantCount || 2); 
+      setMyRole(data.myRole || '나');
+      setPartnerRole(data.partner || '상대방');
+      
       setStep('chat');
       setTimeLeft(180); 
       setHasVoted(false);
@@ -102,8 +116,8 @@ export default function WeUsApp() {
       setShowAd(false); 
       setIsTyping(false); 
       
-      const partnerName = data.partner || `총 ${data.participantCount}명`;
-      setMessages([{ sender: 'System', text: `[${stateRefs.current.currentTopic}] 주제로 ${partnerName}와 연결되었습니다.` }]);
+      const roleText = data.myRole ? `당신은 [${data.myRole}] 역할을 배정받았습니다.` : '';
+      setMessages([{ sender: 'System', text: `[${stateRefs.current.selectedTopic}] 매칭 완료! ${roleText}` }]);
       
       lastInteractionTime.current = Date.now();
       if (socketRef.current?.id === data.hostId) setIsHost(true);
@@ -118,7 +132,7 @@ export default function WeUsApp() {
     socketRef.current.on('partner_left', () => {
       const { isAnalyzing, reportData, showAd } = stateRefs.current;
       if (!isAnalyzing && !reportData && !showAd) {
-        alert("남은 인원이 없어 방이 종료되었습니다.");
+        alert("상대방이 나가 대화가 종료되었습니다.");
         setStep('lobby');
       }
     });
@@ -156,6 +170,7 @@ export default function WeUsApp() {
     return () => { socketRef.current?.disconnect(); };
   }, [userId]); 
 
+  // 마이페이지 탭 이동 시 최신 기록 갱신
   useEffect(() => {
     if (activeTab === 'myRecord' && userId && socketRef.current) {
       socketRef.current.emit('request_my_records', userId);
@@ -204,8 +219,9 @@ export default function WeUsApp() {
     e.preventDefault();
     if (!inputText.trim() || !room) return;
     
-    setMessages((prev) => [...prev, { sender: '나', text: inputText }]);
-    socketRef.current?.emit('send_message', { room: room, roomId: room, text: inputText });
+    // 본인의 화면에는 myRole(예: 지원자) 이름으로 표시되도록 수정
+    setMessages((prev) => [...prev, { sender: myRole || '나', text: inputText }]);
+    socketRef.current?.emit('send_message', { room: room, roomId: room, text: inputText, partner: partnerRole });
     setInputText('');
     lastInteractionTime.current = Date.now();
     setIsTyping(true); 
@@ -223,6 +239,8 @@ export default function WeUsApp() {
       setStep('lobby');
       setIsTyping(false);
       setIsConnecting(false);
+      setMyRole('');
+      setPartnerRole('');
     }
   };
 
@@ -273,17 +291,51 @@ export default function WeUsApp() {
     }
   };
 
-  const handleNextCard = () => {
-    setCurrentCardIndex((prev) => (prev + 1) % TOPIC_CARDS.length);
+  // ★ 아키텍처: 매칭 시작 버튼 클릭 시 역할이 필요한 주제인지 판별
+  const handleMatchStart = (isAiMode: boolean) => {
+    setIsConnecting(true);
+    setIsSingleMode(isAiMode);
+    
+    const roleData = ROLE_MAP[selectedTopic];
+    if (roleData) {
+      // 대립각이 있는 주제면 역할 선택 모달로 이동
+      setStep('role_select');
+      setIsConnecting(false);
+    } else {
+      // 일반 주제(스몰토크 등)는 바로 랜덤 매칭 시작
+      if (isAiMode) {
+        socketRef.current?.emit('start_ai_chat', { topic: selectedTopic, myRole: '익명', aiRole: 'AI 파트너' });
+      } else {
+        socketRef.current?.emit('join_queue', { topic: selectedTopic, role: 'random' });
+      }
+      setStep('waiting');
+    }
   };
 
-  const handlePrevCard = () => {
-    setCurrentCardIndex((prev) => (prev - 1 + TOPIC_CARDS.length) % TOPIC_CARDS.length);
+  // 역할 모달에서 큐 조인 처리
+  const confirmRoleAndJoin = (chosenRole: 'A' | 'B' | 'random') => {
+    setIsConnecting(true);
+    const roleData = ROLE_MAP[selectedTopic];
+    
+    if (isSingleMode) {
+       const myRoleName = chosenRole === 'A' ? roleData.roleA : chosenRole === 'B' ? roleData.roleB : roleData.roleA; // 랜덤일 경우 기본값 A
+       const aiRoleName = chosenRole === 'A' ? roleData.roleB : chosenRole === 'B' ? roleData.roleA : roleData.roleB;
+       socketRef.current?.emit('start_ai_chat', { topic: selectedTopic, myRole: myRoleName, aiRole: aiRoleName });
+    } else {
+       socketRef.current?.emit('join_queue', { 
+         topic: selectedTopic, 
+         role: chosenRole, 
+         roleA_name: roleData.roleA, 
+         roleB_name: roleData.roleB 
+       });
+    }
+    setStep('waiting');
   };
 
-  const activeCard = TOPIC_CARDS[currentCardIndex];
+  const currentOptions = LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.options || [];
+  const currentRoleData = ROLE_MAP[selectedTopic];
+
   const totalPlayHours = (myReports.length * 3 / 60).toFixed(1);
-
   let avgLogic = 0, avgLinguistics = 0, avgEmpathy = 0;
   if (myReports.length > 0) {
     let sumLogic = 0, sumLinguistics = 0, sumEmpathy = 0, validCount = 0;
@@ -331,18 +383,13 @@ export default function WeUsApp() {
       {/* ============================== */}
       {step === 'lobby' && activeTab === 'myRecord' && (
         <div className="w-full max-w-lg h-[85vh] bg-[#080808]/90 backdrop-blur-2xl border border-white/5 rounded-[2rem] p-8 flex flex-col z-10 shadow-2xl relative overflow-hidden">
-          
           <div className="flex justify-between items-end mb-8">
             <div>
               <h2 className="text-sm font-semibold tracking-[0.3em] text-white/50 mb-1">ANALYTICS</h2>
-              <p className="text-[10px] text-white/30 tracking-widest truncate max-w-[150px]">
-                {userId}
-              </p>
+              <p className="text-[10px] text-white/30 tracking-widest truncate max-w-[150px]">{userId}</p>
             </div>
             <div className="text-right flex flex-col items-end gap-2">
-              <span className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-blue-500">
-                {tier}
-              </span>
+              <span className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-blue-500">{tier}</span>
             </div>
           </div>
 
@@ -408,9 +455,7 @@ export default function WeUsApp() {
                       {new Date(report.createdAt).toLocaleDateString()}
                     </span>
                   </div>
-                  <p className="text-xs text-white/70 leading-relaxed whitespace-pre-line group-hover:text-white transition-colors">
-                    {report.aiReport}
-                  </p>
+                  <p className="text-xs text-white/70 leading-relaxed whitespace-pre-line group-hover:text-white transition-colors">{report.aiReport}</p>
                 </div>
               ))
             )}
@@ -419,83 +464,116 @@ export default function WeUsApp() {
       )}
 
       {/* ============================== */}
-      {/* ★ 혁신: 원 카드(One-Card) 집중형 로비 화면 */}
+      {/* ★ 복원 완료: 정통 LOBBY 화면 (카테고리 4개 + 드롭다운) */}
       {/* ============================== */}
       {step === 'lobby' && activeTab === 'lobby' && (
-        <div className="text-center max-w-sm w-full space-y-8 z-10 h-[85vh] flex flex-col justify-center pb-16">
-          <div className="space-y-2 mb-2">
+        <div className="text-center max-w-lg w-full space-y-8 z-10 h-[85vh] flex flex-col justify-center pb-16">
+          <div className="space-y-2 mb-4">
             <h1 className="text-4xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-500 drop-shadow-lg">
               WE US.
             </h1>
-            <p className="text-gray-500 font-medium tracking-[0.2em] text-[10px] uppercase">
-              지적 자산이 되는 3분의 시간
-            </p>
+            <p className="text-gray-400 font-light tracking-widest text-xs">우리가 되어가는 3분의 시간</p>
           </div>
           
-          <div className="relative w-full aspect-[4/5] flex items-center justify-center">
-            {/* 좌측 화살표 */}
-            <button 
-              onClick={handlePrevCard}
-              className="absolute left-[-20px] z-20 w-10 h-10 flex items-center justify-center bg-black/50 backdrop-blur-md rounded-full border border-white/10 text-white/50 hover:text-white transition-all hover:scale-110"
-            >
-              &#10094;
-            </button>
-
-            {/* 메인 토픽 카드 */}
-            <div className="w-full h-full bg-gradient-to-br from-white/[0.05] to-transparent border border-white/10 rounded-[2rem] shadow-2xl flex flex-col items-center justify-center p-8 transition-all duration-300 relative overflow-hidden">
-              <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full blur-[50px]"></div>
-              
-              <span className="text-6xl mb-6 filter drop-shadow-[0_0_15px_rgba(255,255,255,0.2)] animate-pulse">
-                {activeCard.icon}
-              </span>
-              <h2 className="text-2xl font-bold text-white mb-3 tracking-tight break-keep">
-                {activeCard.title}
-              </h2>
-              <p className="text-sm text-white/50 font-medium leading-relaxed break-keep px-4">
-                {activeCard.desc}
-              </p>
-
-              <div className="absolute bottom-6 flex gap-1">
-                {TOPIC_CARDS.map((_, idx) => (
-                  <div key={idx} className={`w-1.5 h-1.5 rounded-full transition-all ${idx === currentCardIndex ? 'bg-emerald-400 w-4' : 'bg-white/20'}`} />
-                ))}
-              </div>
-            </div>
-
-            {/* 우측 화살표 */}
-            <button 
-              onClick={handleNextCard}
-              className="absolute right-[-20px] z-20 w-10 h-10 flex items-center justify-center bg-black/50 backdrop-blur-md rounded-full border border-white/10 text-white/50 hover:text-white transition-all hover:scale-110"
-            >
-              &#10095;
-            </button>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {LOBBY_CATEGORIES.map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => {
+                  setSelectedCategory(cat.id);
+                  setSelectedTopic(cat.options[0]); 
+                }}
+                className={`p-3 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all border ${
+                  selectedCategory === cat.id 
+                  ? 'bg-white/10 border-white/30 shadow-[0_0_15px_rgba(255,255,255,0.1)]' 
+                  : 'bg-white/[0.02] border-white/5 opacity-50 hover:opacity-100'
+                }`}
+              >
+                <span className="text-xl mb-1">{cat.icon}</span>
+                <span className="text-[10px] font-bold tracking-wider text-white whitespace-nowrap">{cat.title}</span>
+              </button>
+            ))}
           </div>
 
-          <div className="space-y-3">
+          <div className="bg-white/[0.03] backdrop-blur-xl p-6 rounded-3xl border border-white/5 shadow-2xl space-y-6">
+            <div className="flex flex-col text-left space-y-3">
+              <label className="text-[11px] text-emerald-400 uppercase tracking-widest font-bold">
+                {LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.desc}
+              </label>
+              <select 
+                value={selectedTopic} 
+                onChange={(e) => setSelectedTopic(e.target.value)}
+                className="bg-black/40 border border-white/10 text-white text-sm rounded-xl focus:ring-1 focus:ring-white/30 focus:border-white/30 block w-full p-4 outline-none cursor-pointer appearance-none transition-all"
+              >
+                {currentOptions.map(opt => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-3 pt-2">
+              <button 
+                disabled={isConnecting}
+                onClick={() => handleMatchStart(false)}
+                className="w-full bg-white text-black font-extrabold tracking-wide py-4 rounded-xl hover:bg-gray-200 transition-all shadow-lg flex justify-center items-center gap-2 text-sm"
+              >
+                {isConnecting && !isSingleMode ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"/> : null}
+                익명 매칭 시작하기
+              </button>
+              <button 
+                disabled={isConnecting}
+                onClick={() => handleMatchStart(true)}
+                className="w-full bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-4 rounded-xl border border-white/10 transition-all flex justify-center items-center gap-2 text-sm"
+              >
+                {isConnecting && isSingleMode ? <div className="w-4 h-4 border-2 border-white/50 border-t-transparent rounded-full animate-spin"/> : null}
+                AI와 먼저 연습하기
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================== */}
+      {/* ★ 아키텍처 연동: 역할 선택 모달 (대립형 주제 전용) */}
+      {/* ============================== */}
+      {step === 'role_select' && currentRoleData && (
+        <div className="text-center max-w-sm w-full z-10 h-[85vh] flex flex-col justify-center">
+          <div className="bg-[#080808]/90 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-8 shadow-2xl">
+            <h2 className="text-lg font-bold text-white mb-2">역할을 선택하세요</h2>
+            <p className="text-xs text-white/50 mb-8 tracking-widest break-keep">
+              [{selectedTopic}] 1:1 대결을 위한 역할을 고릅니다.
+            </p>
+            
+            <div className="space-y-3 mb-6">
+              <button 
+                onClick={() => confirmRoleAndJoin('A')} 
+                className="w-full bg-white/5 hover:bg-white/10 border border-emerald-500/30 py-4 rounded-xl font-bold text-emerald-400 transition flex justify-between px-6"
+              >
+                <span>{currentRoleData.roleA}</span>
+                <span className="text-[10px] font-normal text-white/40 flex items-center">참여하기 ➔</span>
+              </button>
+              <button 
+                onClick={() => confirmRoleAndJoin('B')} 
+                className="w-full bg-white/5 hover:bg-white/10 border border-blue-500/30 py-4 rounded-xl font-bold text-blue-400 transition flex justify-between px-6"
+              >
+                <span>{currentRoleData.roleB}</span>
+                <span className="text-[10px] font-normal text-white/40 flex items-center">참여하기 ➔</span>
+              </button>
+              {!isSingleMode && (
+                <button 
+                  onClick={() => confirmRoleAndJoin('random')} 
+                  className="w-full bg-white/5 hover:bg-white/10 border border-white/10 py-4 rounded-xl font-bold text-white/80 transition flex justify-between px-6"
+                >
+                  <span>상관없음 (랜덤)</span>
+                  <span className="text-[10px] font-normal text-white/40 flex items-center">빠른매칭 ➔</span>
+                </button>
+              )}
+            </div>
             <button 
-              disabled={isConnecting}
-              onClick={() => {
-                setIsConnecting(true); 
-                setIsSingleMode(false);
-                socketRef.current?.emit('join_queue', { lang: '공통', topic: activeCard.title }); 
-                setStep('waiting');
-              }}
-              className="w-full bg-white text-black font-extrabold tracking-wide py-4 rounded-xl hover:bg-gray-200 transition-all shadow-[0_0_20px_rgba(255,255,255,0.1)] flex justify-center items-center gap-2 text-sm"
+              onClick={() => { setStep('lobby'); setIsConnecting(false); }} 
+              className="text-xs text-white/30 hover:text-white/60 underline tracking-widest"
             >
-              {isConnecting && !isSingleMode ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"/> : null}
-              익명 유저와 매칭 시작
-            </button>
-            <button 
-              disabled={isConnecting}
-              onClick={() => {
-                setIsConnecting(true); 
-                setIsSingleMode(true);
-                socketRef.current?.emit('start_ai_chat', activeCard.title); 
-              }}
-              className="w-full bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-4 rounded-xl border border-white/10 transition-all flex justify-center items-center gap-2 text-sm"
-            >
-              {isConnecting && isSingleMode ? <div className="w-4 h-4 border-2 border-white/50 border-t-transparent rounded-full animate-spin"/> : null}
-              AI와 먼저 연습하기
+              로비로 돌아가기
             </button>
           </div>
         </div>
@@ -526,7 +604,7 @@ export default function WeUsApp() {
           </div>
           <p className="text-xl font-light text-white tracking-wider">상대방을 찾는 중...</p>
           <div className="inline-block px-4 py-1.5 rounded-full border border-white/10 bg-white/5 backdrop-blur-sm">
-            <p className="text-sm text-white/60">{activeCard.title}</p>
+            <p className="text-sm text-white/60">{selectedTopic}</p>
           </div>
           <div className="pt-8">
             <button onClick={() => { setStep('lobby'); setIsConnecting(false); }} className="text-sm text-white/30 hover:text-white/80 underline tracking-widest transition-colors">
@@ -536,39 +614,25 @@ export default function WeUsApp() {
         </div>
       )}
 
-      {/* 기존 CHAT 및 리포트/신고 모달 UI는 완벽히 동일하게 유지됩니다 */}
+      {/* 기존 CHAT 및 리포트/신고 모달 UI */}
       {step === 'chat' && (
         <div className="w-full max-w-lg h-[85vh] bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative z-10">
           
           {isReportModalOpen && (
             <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-[70] p-6 backdrop-blur-sm">
               <div className="w-full max-w-sm bg-[#0a0a0a] border border-white/10 rounded-[2rem] p-8 shadow-2xl flex flex-col">
-                <h3 className="text-lg font-bold text-red-400 mb-2 flex items-center gap-2 tracking-widest">
-                  🚨 사용자 신고
-                </h3>
+                <h3 className="text-lg font-bold text-red-400 mb-2 flex items-center gap-2 tracking-widest">🚨 사용자 신고</h3>
                 <p className="text-xs text-white/50 mb-6 leading-relaxed">건전한 환경을 위해 사유를 선택해 주세요. 신고 즉시 대화가 차단되며 서버로 전송됩니다.</p>
                 <div className="space-y-2 mb-8">
                   {['욕설 및 비하', '음란성 발언', '광고 및 도배', '기타 사유'].map((reason) => (
-                    <button
-                      key={reason}
-                      onClick={() => setReportReason(reason)}
-                      className={`w-full text-left p-4 rounded-xl text-xs font-semibold tracking-wider transition-all border ${
-                        reportReason === reason 
-                        ? 'bg-red-500/10 border-red-500/50 text-red-400' 
-                        : 'bg-white/[0.02] border-transparent text-white/50 hover:bg-white/[0.05]'
-                      }`}
-                    >
+                    <button key={reason} onClick={() => setReportReason(reason)} className={`w-full text-left p-4 rounded-xl text-xs font-semibold tracking-wider transition-all border ${reportReason === reason ? 'bg-red-500/10 border-red-500/50 text-red-400' : 'bg-white/[0.02] border-transparent text-white/50 hover:bg-white/[0.05]'}`}>
                       {reason}
                     </button>
                   ))}
                 </div>
                 <div className="flex gap-3">
-                  <button onClick={() => setIsReportModalOpen(false)} className="flex-1 py-3.5 bg-white/5 text-white/70 rounded-xl text-xs font-bold tracking-widest hover:bg-white/10 transition-colors">
-                    취소
-                  </button>
-                  <button onClick={handleReportSubmit} className="flex-1 py-3.5 bg-red-900/50 text-red-200 border border-red-800/50 rounded-xl text-xs font-bold tracking-widest hover:bg-red-800 transition-colors">
-                    신고 및 나가기
-                  </button>
+                  <button onClick={() => setIsReportModalOpen(false)} className="flex-1 py-3.5 bg-white/5 text-white/70 rounded-xl text-xs font-bold tracking-widest hover:bg-white/10 transition-colors">취소</button>
+                  <button onClick={handleReportSubmit} className="flex-1 py-3.5 bg-red-900/50 text-red-200 border border-red-800/50 rounded-xl text-xs font-bold tracking-widest hover:bg-red-800 transition-colors">신고 및 나가기</button>
                 </div>
               </div>
             </div>
@@ -583,16 +647,8 @@ export default function WeUsApp() {
                   <p className="text-white/90 text-sm z-10 font-medium">WE US 프리미엄 패스를 확인해보세요</p>
                 </div>
                 <div className="p-4 flex justify-between items-center bg-gray-900 border-t border-gray-800">
-                  <span className="text-xs text-gray-400 font-bold">
-                    {adCountdown > 0 ? `AI 분석 중...` : '리포트 준비 완료!'}
-                  </span>
-                  <button
-                    onClick={() => setShowAd(false)}
-                    disabled={adCountdown > 0}
-                    className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
-                      adCountdown > 0 ? 'bg-gray-800 text-gray-500' : 'bg-white text-black hover:bg-gray-200'
-                    }`}
-                  >
+                  <span className="text-xs text-gray-400 font-bold">{adCountdown > 0 ? `AI 분석 중...` : '리포트 준비 완료!'}</span>
+                  <button onClick={() => setShowAd(false)} disabled={adCountdown > 0} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${adCountdown > 0 ? 'bg-gray-800 text-gray-500' : 'bg-white text-black hover:bg-gray-200'}`}>
                     {adCountdown > 0 ? `${adCountdown}초 후 건너뛰기` : '결과 보기 ▶'}
                   </button>
                 </div>
@@ -609,43 +665,25 @@ export default function WeUsApp() {
 
           {reportData && !showAd && (
             <div className="absolute inset-0 bg-[#050505]/95 flex flex-col items-center justify-center z-50 p-6 backdrop-blur-xl">
-              <div 
-                ref={reportCardRef}
-                className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-8 w-full max-w-sm shadow-2xl flex flex-col"
-              >
+              <div ref={reportCardRef} className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-8 w-full max-w-sm shadow-2xl flex flex-col">
                 <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4">
                    <h2 className="text-xs font-bold tracking-[0.3em] text-white/50">WE US REPORT</h2>
                    <span className="text-[10px] text-emerald-400 border border-emerald-400/30 px-2 py-1 rounded-full">{tier}</span>
                 </div>
-                
                 <h2 className="text-xl font-light tracking-widest text-center mb-6 text-white">
                   {isSingleMode ? 'PERSONAL TUTORING' : 'CHEMISTRY ANALYSIS'}
                 </h2>
-                
                 <div className="space-y-4 text-sm text-gray-300 whitespace-pre-line leading-relaxed flex-1 bg-white/[0.02] p-6 rounded-2xl border border-white/5">
                   {reportData}
                 </div>
-                
-                <div className="mt-6 text-center text-[10px] text-white/30 font-mono">
-                  we-us.online
-                </div>
+                <div className="mt-6 text-center text-[10px] text-white/30 font-mono">we-us.online</div>
               </div>
 
               <div className="w-full max-w-sm mt-6 flex gap-3 px-2">
-                <button
-                  onClick={handleShareCard}
-                  disabled={isCapturing}
-                  className="flex-1 bg-white text-black font-bold tracking-wide py-3.5 rounded-xl hover:bg-gray-200 transition flex justify-center items-center gap-2"
-                >
+                <button onClick={handleShareCard} disabled={isCapturing} className="flex-1 bg-white text-black font-bold tracking-wide py-3.5 rounded-xl hover:bg-gray-200 transition flex justify-center items-center gap-2">
                   {isCapturing ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"/> : '📸 인스타용 캡처'}
                 </button>
-                <button
-                  onClick={() => {
-                    setReportData(null);
-                    setStep('lobby');
-                  }}
-                  className="px-6 bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-3.5 rounded-xl border border-white/10 transition"
-                >
+                <button onClick={() => { setReportData(null); setStep('lobby'); }} className="px-6 bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-3.5 rounded-xl border border-white/10 transition">
                   로비
                 </button>
               </div>
@@ -657,26 +695,22 @@ export default function WeUsApp() {
               <div className="flex items-center gap-3">
                 <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="font-semibold text-sm text-white/90 truncate">
-                  {isSingleMode ? `AI 싱글: ${activeCard.title}` : `${activeCard.title}`}
+                  {isSingleMode ? `AI 싱글: ${selectedTopic}` : `${selectedTopic}`}
                 </span>
                 <div className="flex items-center gap-1">
                   {!isSingleMode && (
-                    <button 
-                      onClick={() => setIsReportModalOpen(true)}
-                      className="bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[10px] px-2.5 py-1 rounded-full transition-colors border border-transparent hover:border-red-500/30 font-bold"
-                    >
+                    <button onClick={() => setIsReportModalOpen(true)} className="bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[10px] px-2.5 py-1 rounded-full transition-colors border border-transparent hover:border-red-500/30 font-bold">
                       🚨 신고
                     </button>
                   )}
-                  <button 
-                    onClick={leaveRoom}
-                    className="bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/80 text-[10px] px-2.5 py-1 rounded-full transition-colors border border-transparent"
-                  >
+                  <button onClick={leaveRoom} className="bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/80 text-[10px] px-2.5 py-1 rounded-full transition-colors border border-transparent">
                     나가기
                   </button>
                 </div>
               </div>
-              {!isSingleMode && <span className="text-xs text-white/40 tracking-wider">참여 인원: {participantCount}명</span>}
+              <span className="text-xs text-emerald-400 font-bold tracking-wider pt-1">
+                내 역할: [{myRole}]
+              </span>
             </div>
             <div className={`px-3 py-1 rounded-full border ${timeLeft < 60 ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-white/5 border-white/10 text-white/80'}`}>
               <span className="font-mono text-sm tracking-wider font-medium">{formatTime(timeLeft)}</span>
@@ -685,13 +719,9 @@ export default function WeUsApp() {
 
           <div className="flex-1 p-5 overflow-y-auto space-y-4 pb-24 flex flex-col">
             {messages.map((msg, idx) => (
-              <div key={idx} className={`flex ${msg.sender === '나' ? 'justify-end' : msg.sender === 'System' ? 'justify-center' : 'justify-start'}`}>
-                <div className={`max-w-[80%] p-3.5 rounded-2xl text-[15px] leading-relaxed ${
-                  msg.sender === '나' ? 'bg-white text-black rounded-tr-sm' : 
-                  msg.sender === 'System' ? 'bg-transparent text-white/40 text-xs border border-white/10 rounded-full px-5 py-2 text-center' :
-                  msg.sender === 'AI 🤖' || msg.sender === 'AI' ? 'bg-indigo-600/20 border border-indigo-500/30 text-indigo-100 rounded-tl-sm' : 'bg-white/10 text-white rounded-tl-sm'
-                }`}>
-                  {msg.sender !== 'System' && <span className={`text-[11px] block mb-1 font-bold ${msg.sender === '나' ? 'text-gray-500' : 'text-white/40'}`}>{msg.sender}</span>}
+              <div key={idx} className={`flex ${msg.sender === myRole || msg.sender === '나' ? 'justify-end' : msg.sender === 'System' ? 'justify-center' : 'justify-start'}`}>
+                <div className={`max-w-[80%] p-3.5 rounded-2xl text-[15px] leading-relaxed ${msg.sender === myRole || msg.sender === '나' ? 'bg-white text-black rounded-tr-sm' : msg.sender === 'System' ? 'bg-transparent text-white/40 text-xs border border-white/10 rounded-full px-5 py-2 text-center' : 'bg-white/10 text-white rounded-tl-sm'}`}>
+                  {msg.sender !== 'System' && <span className={`text-[11px] block mb-1 font-bold ${msg.sender === myRole || msg.sender === '나' ? 'text-gray-500' : 'text-white/40'}`}>{msg.sender}</span>}
                   <span>{msg.text}</span>
                 </div>
               </div>
@@ -710,30 +740,15 @@ export default function WeUsApp() {
 
           {timeLeft <= 60 && !isSingleMode && !isAnalyzing && !reportData && extensionCount < 2 && !showAd && (
             <div className="absolute bottom-[80px] left-0 w-full p-3 bg-gradient-to-t from-[#0a0a0a] to-transparent flex flex-col items-center justify-center">
-              <button
-                onClick={() => { setHasVoted(true); socketRef.current?.emit('vote_extend', { room }); }}
-                disabled={hasVoted}
-                className={`px-6 py-2.5 rounded-full font-bold text-sm shadow-lg transition-all border ${
-                  hasVoted ? 'bg-white/5 border-white/10 text-white/30 cursor-not-allowed' : 'bg-emerald-500/20 border-emerald-500/50 hover:bg-emerald-500/30 text-emerald-300'
-                }`}
-              >
+              <button onClick={() => { setHasVoted(true); socketRef.current?.emit('vote_extend', { room }); }} disabled={hasVoted} className={`px-6 py-2.5 rounded-full font-bold text-sm shadow-lg transition-all border ${hasVoted ? 'bg-white/5 border-white/10 text-white/30 cursor-not-allowed' : 'bg-emerald-500/20 border-emerald-500/50 hover:bg-emerald-500/30 text-emerald-300'}`}>
                 {hasVoted ? `동의 대기중 ${voteStatus}` : `+ 2분 연장하기 (${extensionCount}/2)`}
               </button>
             </div>
           )}
 
           <form onSubmit={sendMessage} className="p-4 bg-[#050505] border-t border-white/5 flex gap-2 z-10 relative">
-            <input 
-              type="text" 
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              disabled={isAnalyzing || !!reportData || showAd} 
-              placeholder="메시지 입력..." 
-              className="flex-1 bg-white/5 text-white px-5 py-3.5 rounded-full outline-none focus:bg-white/10 transition-colors disabled:opacity-50 text-sm placeholder:text-white/20 border border-transparent focus:border-white/10"
-            />
-            <button type="submit" disabled={isAnalyzing || !!reportData || showAd || !inputText.trim()} className="bg-white text-black w-12 h-12 rounded-full flex items-center justify-center font-bold hover:bg-gray-200 disabled:opacity-50 transition-colors shrink-0">
-              ↑
-            </button>
+            <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} disabled={isAnalyzing || !!reportData || showAd} placeholder="메시지 입력..." className="flex-1 bg-white/5 text-white px-5 py-3.5 rounded-full outline-none focus:bg-white/10 transition-colors disabled:opacity-50 text-sm placeholder:text-white/20 border border-transparent focus:border-white/10"/>
+            <button type="submit" disabled={isAnalyzing || !!reportData || showAd || !inputText.trim()} className="bg-white text-black w-12 h-12 rounded-full flex items-center justify-center font-bold hover:bg-gray-200 disabled:opacity-50 transition-colors shrink-0">↑</button>
           </form>
         </div>
       )}
