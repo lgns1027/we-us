@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import html2canvas from 'html2canvas'; 
-import { useSession, signIn, signOut } from 'next-auth/react'; // ★ 소셜 로그인 훅 추가
+import { useSession, signIn, signOut } from 'next-auth/react'; 
 
 const SERVER_URL = 'https://we-us-backend.onrender.com';
 
@@ -15,10 +15,10 @@ const LOBBY_CATEGORIES = [
 ];
 
 export default function WeUsApp() {
-  // ★ 로그인 상태 관리
   const { data: session, status } = useSession();
   
   const [activeTab, setActiveTab] = useState<'lobby' | 'myRecord'>('lobby');
+  const [userId, setUserId] = useState<string>('');
   const [myReports, setMyReports] = useState<any[]>([]); 
 
   const [step, setStep] = useState<'lobby' | 'waiting' | 'chat'>('lobby');
@@ -67,11 +67,24 @@ export default function WeUsApp() {
     messagesRef.current = messages;
   }, [messages]);
 
-  // ★ 구글 이메일을 고유 ID로 사용 (없으면 대기)
-  const userId = session?.user?.email || '';
+  // ★ 게스트 UUID와 구글 이메일 유동적 병합 로직
+  useEffect(() => {
+    let storedId = localStorage.getItem('weus_guest_id');
+    if (!storedId) {
+      storedId = 'guest_' + Math.random().toString(36).substr(2, 9);
+      localStorage.setItem('weus_guest_id', storedId);
+    }
+    // 로그인이 되어 있으면 이메일을 우선 사용, 아니면 게스트 ID 사용
+    if (session?.user?.email) {
+      setUserId(session.user.email);
+    } else {
+      setUserId(storedId);
+    }
+  }, [session]);
 
   useEffect(() => {
-    if (status !== 'authenticated') return; // 로그인 안 되어있으면 소켓 연결 안함
+    // 로딩 중이거나 ID가 아직 세팅 안 됐으면 대기
+    if (status === 'loading' || !userId) return; 
 
     socketRef.current = io(SERVER_URL);
 
@@ -147,7 +160,7 @@ export default function WeUsApp() {
     });
 
     return () => { socketRef.current?.disconnect(); };
-  }, [status]); 
+  }, [status, userId]); 
 
   useEffect(() => {
     if (activeTab === 'myRecord' && userId && socketRef.current) {
@@ -239,7 +252,6 @@ export default function WeUsApp() {
   const handleShareCard = async () => {
     if (!reportCardRef.current) return;
     setIsCapturing(true);
-
     try {
       const canvas = await html2canvas(reportCardRef.current, { scale: 2, backgroundColor: '#0a0a0a', useCORS: true });
       canvas.toBlob(async (blob) => {
@@ -307,86 +319,53 @@ export default function WeUsApp() {
     else tier = "Top 50%";
   }
 
-  // ==========================================
-  // ★ 로그인 분기 처리 (인증되지 않은 유저는 로그인 창만 보임)
-  // ==========================================
-  if (status === 'loading') {
-    return (
-      <div className="min-h-screen bg-[#050505] flex items-center justify-center">
-        <div className="w-12 h-12 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
-      </div>
-    );
-  }
-
-  if (status === 'unauthenticated') {
-    return (
-      <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-6 relative overflow-hidden">
-        <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] bg-blue-900/10 blur-[150px] rounded-full pointer-events-none" />
-        <div className="absolute bottom-[-20%] right-[-20%] w-[60%] h-[60%] bg-emerald-900/10 blur-[150px] rounded-full pointer-events-none" />
-        
-        <div className="z-10 text-center max-w-sm w-full space-y-12">
-          <div className="space-y-4">
-            <h1 className="text-6xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-br from-white via-gray-300 to-gray-600 drop-shadow-2xl">
-              WE US.
-            </h1>
-            <p className="text-gray-400 font-light tracking-[0.2em] text-sm">
-              지적 자산이 되는 3분의 시간
-            </p>
-          </div>
-
-          <div className="bg-white/[0.02] backdrop-blur-xl border border-white/5 rounded-3xl p-8 shadow-2xl">
-            <button 
-              onClick={() => signIn('google')}
-              className="w-full flex items-center justify-center gap-4 bg-white text-black py-4 px-6 rounded-2xl font-bold tracking-wider hover:bg-gray-200 transition-all shadow-[0_0_20px_rgba(255,255,255,0.1)]"
-            >
-              <svg className="w-5 h-5" viewBox="0 0 24 24">
-                <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-              </svg>
-              Google로 시작하기
-            </button>
-            <p className="text-[10px] text-white/30 mt-6 leading-relaxed">
-              로그인 시 10년간 대화 데이터가 안전하게 영구 보존되며,<br/>언제든 나의 소통 능력 티어를 확인할 수 있습니다.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-[#050505] text-gray-100 font-sans flex flex-col items-center justify-center p-4 relative overflow-hidden">
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/10 blur-[120px] rounded-full pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-900/10 blur-[120px] rounded-full pointer-events-none" />
 
+      {/* ============================== */}
+      {/* RECORD 탭: 게스트 상태일 때 로그인 유도 배너 추가 */}
+      {/* ============================== */}
       {step === 'lobby' && activeTab === 'myRecord' && (
         <div className="w-full max-w-lg h-[85vh] bg-[#080808]/90 backdrop-blur-2xl border border-white/5 rounded-[2rem] p-8 flex flex-col z-10 shadow-2xl relative overflow-hidden">
           
           <div className="flex justify-between items-end mb-8">
             <div>
               <h2 className="text-sm font-semibold tracking-[0.3em] text-white/50 mb-1">ANALYTICS</h2>
-              {/* ★ UUID 대신 구글 계정 이름/이메일 표시 */}
               <p className="text-[10px] text-white/30 tracking-widest truncate max-w-[150px]">
-                {session?.user?.name || session?.user?.email}
+                {status === 'authenticated' ? session.user?.name || session.user?.email : `Guest (${userId})`}
               </p>
             </div>
             <div className="text-right flex flex-col items-end gap-2">
               <span className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-blue-500">
                 {tier}
               </span>
-              {/* ★ 로그아웃 버튼 추가 */}
-              <button 
-                onClick={() => signOut()}
-                className="text-[9px] border border-white/20 text-white/40 px-2 py-1 rounded-md hover:bg-white/10 transition-colors"
-              >
-                로그아웃
-              </button>
+              {status === 'authenticated' && (
+                <button onClick={() => signOut()} className="text-[9px] border border-white/20 text-white/40 px-2 py-1 rounded-md hover:bg-white/10 transition-colors">
+                  로그아웃
+                </button>
+              )}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 mb-8">
+          {/* ★ 비로그인 상태일 때 데이터 보존 유도 배너 */}
+          {status === 'unauthenticated' && (
+            <div className="mb-6 bg-white/[0.03] border border-emerald-500/30 rounded-2xl p-4 flex flex-col gap-3">
+              <p className="text-xs text-white/70 leading-relaxed text-center">
+                현재 분석 데이터는 브라우저에 임시 저장되어 있습니다.<br/>
+                <span className="text-emerald-400 font-bold">10년간 영구 보존</span>하려면 계정을 연동해 주세요.
+              </p>
+              <button 
+                onClick={() => signIn('google')}
+                className="w-full py-3 bg-white text-black rounded-xl text-xs font-bold tracking-wider hover:bg-gray-200 transition flex items-center justify-center gap-2"
+              >
+                Google 계정으로 영구 보존하기
+              </button>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3 mb-6">
             <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 flex flex-col justify-between hover:bg-white/[0.04] transition-colors">
               <span className="text-[10px] text-white/40 tracking-widest uppercase mb-2">누적 지적 자산</span>
               <span className="text-2xl font-light text-white mb-1">{totalPlayHours}<span className="text-sm text-white/30 ml-1">hrs</span></span>
@@ -458,6 +437,9 @@ export default function WeUsApp() {
         </div>
       )}
 
+      {/* ============================== */}
+      {/* LOBBY 등 나머지 화면은 모두 기존과 동일 */}
+      {/* ============================== */}
       {step === 'lobby' && activeTab === 'lobby' && (
         <div className="text-center max-w-lg w-full space-y-8 z-10 h-[85vh] flex flex-col justify-center pb-16">
           <div className="space-y-2 mb-4">
