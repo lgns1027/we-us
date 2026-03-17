@@ -12,12 +12,10 @@ const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] } 
 });
 
-// --- [1. 데이터베이스 연결 및 스키마 세팅] ---
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log("🍃 MongoDB 연결 성공! 대화 기록이 영구 저장됩니다."))
   .catch(err => console.error("❌ DB 연결 실패:", err));
 
-// ★ 진화 1: 대화 리포트 스키마에 AI가 추출한 '세부 스탯(Stats)' 추가
 const ReportSchema = new mongoose.Schema({
   roomName: String,
   userIds: [String], 
@@ -35,7 +33,6 @@ const ReportSchema = new mongoose.Schema({
 });
 const Report = mongoose.model('Report', ReportSchema);
 
-// ★ 진화 2: 트롤 유저 영구 박제를 위한 블랙리스트 스키마 추가
 const BlacklistSchema = new mongoose.Schema({
   reporterId: String,
   roomName: String,
@@ -44,17 +41,15 @@ const BlacklistSchema = new mongoose.Schema({
 });
 const Blacklist = mongoose.model('Blacklist', BlacklistSchema);
 
-// --- [2. 상태 관리 변수] ---
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const waitingQueues = {}; 
 const matchTimers = {};
 const roomVotes = {};     
 const activeRooms = {};   
 
-// --- [3. AI 통신 엔진 (Gemma 3중 루프 완벽 보존)] ---
 async function getGoogleAIResponse(systemPrompt, history, maxTokens = 250) {
   const modelsToTry = [
-    "gemma-3-12b-it", // 속도와 성능 밸런스 1순위
+    "gemma-3-12b-it", 
     "gemma-3-27b-it",
     "gemma-3-4b-it"
   ];
@@ -89,7 +84,6 @@ async function getGoogleAIResponse(systemPrompt, history, maxTokens = 250) {
   return "네트워크가 불안정하여 AI가 답변을 고민하고 있습니다.";
 }
 
-// ★ 진화 3: 욕설 필터링 함수 (서버단에서 원천 차단)
 function filterProfanity(text) {
   const badWords = ['씨발', '시발', '개새끼', '지랄', '병신', '애미', '존나', '좆']; 
   let filtered = text;
@@ -100,11 +94,9 @@ function filterProfanity(text) {
   return filtered;
 }
 
-// 다중 페르소나 및 데이터 추출 프롬프트 생성기
 function getPersonaPrompt(topic, isReport = false) {
   if (isReport) {
     const basePrompt = `대화 기록을 전문가의 시선으로 분석하여 1. 대화 밀도(100점 만점) 2. 핵심 키워드(#해시태그) 3. 총평을 3줄로 작성하세요.`;
-    // ★ 빅데이터 시각화를 위해 AI에게 정확한 규격으로 점수를 뱉어내도록 강제
     const statsInstruction = `\n\n반드시 답변 맨 마지막 줄에 다음 형식으로 참가자의 평균 능력치를 평가해 적어주세요: [LOGIC: 0~100사이숫자] [LINGUISTICS: 0~100사이숫자] [EMPATHY: 0~100사이숫자]`;
     
     if (['한국어', '영어', '일본어', '프랑스어'].includes(topic)) {
@@ -132,7 +124,6 @@ function getPersonaPrompt(topic, isReport = false) {
   }
 }
 
-// --- [4. 매칭 및 방 생성 로직] ---
 function startGroupRoom(queueKey) {
   const users = waitingQueues[queueKey].splice(0, 4); 
   if (users.length < 2) {
@@ -149,7 +140,8 @@ function startGroupRoom(queueKey) {
     participants: users.length, 
     isGeneratingReport: false,
     topic: queueKey.split('_')[1],
-    userIds: new Set()
+    userIds: new Set(),
+    endTime: Date.now() + (180 * 1000) // ★ 혁신: 서버 기준의 방 종료 '절대 시간' 부여
   };
 
   const aliases = ['익명 A', '익명 B', '익명 C', '익명 D'];
@@ -163,7 +155,6 @@ function startGroupRoom(queueKey) {
   delete matchTimers[queueKey];
 }
 
-// --- [5. 소켓 통신 메인 로직] ---
 io.on('connection', (socket) => {
   
   socket.on('join_queue', (data) => {
@@ -195,7 +186,8 @@ io.on('connection', (socket) => {
       topic: topic, 
       history: [], 
       isGeneratingReport: false,
-      userIds: new Set() 
+      userIds: new Set(),
+      endTime: Date.now() + (180 * 1000) // ★ 싱글모드 절대 시간 부여
     };
     
     let partnerName = '대화 파트너';
@@ -214,7 +206,6 @@ io.on('connection', (socket) => {
     const roomData = activeRooms[data.room || data.roomId];
     if (!roomData) return;
 
-    // ★ 욕설 마스킹 적용
     const cleanText = filterProfanity(data.text);
 
     if (roomData.type === 'multi') {
@@ -232,7 +223,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ★ 신고 접수 소켓
   socket.on('report_user', async (data) => {
     try {
       await Blacklist.create({
@@ -263,60 +253,11 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('request_chemistry_report', async (data) => {
+  // 유저가 프론트에서 보내는 리포트 요청은 이제 'UUID' 수집 용도로만 작동합니다.
+  socket.on('request_chemistry_report', (data) => {
     const roomData = activeRooms[data.room];
-    
-    if (!roomData || roomData.history.length < 4) {
-      if(roomData && roomData.isGeneratingReport) return;
-      io.to(data.room).emit('receive_report', { error: true });
-      return;
-    }
-
-    if (data.userId) roomData.userIds.add(data.userId);
-    if (roomData.isGeneratingReport) return; 
-    roomData.isGeneratingReport = true; 
-
-    const systemPrompt = getPersonaPrompt(roomData.topic, true);
-    const conversationText = roomData.type === 'single' 
-      ? roomData.history.map(msg => `${msg.role === 'user' ? '나' : 'AI'}: ${msg.content}`).join('\n')
-      : roomData.history.join('\n');
-
-    const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 300);
-    
-    // ★ 정규식을 이용해 AI 응답에서 능력치 점수 파싱
-    let logicScore = 50, linguisticsScore = 50, empathyScore = 50;
-    const logicMatch = reportContent.match(/\[LOGIC:\s*(\d+)\]/i);
-    const linguisticsMatch = reportContent.match(/\[LINGUISTICS:\s*(\d+)\]/i);
-    const empathyMatch = reportContent.match(/\[EMPATHY:\s*(\d+)\]/i);
-
-    if (logicMatch) logicScore = parseInt(logicMatch[1]);
-    if (linguisticsMatch) linguisticsScore = parseInt(linguisticsMatch[1]);
-    if (empathyMatch) empathyScore = parseInt(empathyMatch[1]);
-
-    // 화면에 보여줄 때는 지저분한 태그를 지워버림
-    const cleanReportText = reportContent.replace(/\[LOGIC:.*\]|\[LINGUISTICS:.*\]|\[EMPATHY:.*\]/gi, '').trim();
-
-    try {
-      if (!reportContent.includes("불안정하여")) {
-        await Report.create({
-          roomName: data.room,
-          userIds: Array.from(roomData.userIds), 
-          type: roomData.type,
-          topic: roomData.topic || '알 수 없음',
-          participants: roomData.participants || 2,
-          fullLog: roomData.type === 'single' ? roomData.history.map(m => m.content) : roomData.history,
-          aiReport: cleanReportText,
-          stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore }
-        });
-      }
-    } catch (dbError) {
-      console.error("🔥 DB 저장 실패:", dbError);
-    }
-
-    if (reportContent.includes("불안정하여")) {
-      io.to(data.room).emit('receive_report', { error: true });
-    } else {
-      io.to(data.room).emit('receive_report', { reportText: cleanReportText });
+    if (roomData && data.userId) {
+      roomData.userIds.add(data.userId);
     }
   });
 
@@ -342,6 +283,7 @@ io.on('connection', (socket) => {
 
     if (roomVotes[room].size === roomData.participants) {
       roomData.extensionCount += 1;
+      roomData.endTime += (120 * 1000); // ★ 서버 절대 시간도 2분 연장
       io.to(room).emit('time_extended', { addedTime: 120, currentExtensions: roomData.extensionCount });
       roomVotes[room].clear();
     } else {
@@ -400,6 +342,70 @@ io.on('connection', (socket) => {
     }
   });
 });
+
+// ==========================================
+// ★ 혁신: 서버 주도형 타이머 및 리포트 자동 발급기 (Garbage Collector)
+// 1초마다 모든 방을 검사해서 시간이 다 된 방은 강제로 AI 분석을 시작합니다.
+// ==========================================
+setInterval(async () => {
+  const now = Date.now();
+  for (const room in activeRooms) {
+    const roomData = activeRooms[room];
+    
+    // 시간이 끝났고, 아직 리포트를 생성하지 않은 방이라면
+    if (now >= roomData.endTime && !roomData.isGeneratingReport) {
+      roomData.isGeneratingReport = true;
+      console.log(`[서버 타이머] ${room} 대화 종료. AI 리포트 생성 시작...`);
+
+      // 대화가 너무 짧은 경우 예외 처리
+      if (roomData.history.length < 4) {
+        io.to(room).emit('receive_report', { error: true });
+        continue;
+      }
+
+      const systemPrompt = getPersonaPrompt(roomData.topic, true);
+      const conversationText = roomData.type === 'single' 
+        ? roomData.history.map(msg => `${msg.role === 'user' ? '나' : 'AI'}: ${msg.content}`).join('\n')
+        : roomData.history.join('\n');
+
+      const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 300);
+      
+      let logicScore = 50, linguisticsScore = 50, empathyScore = 50;
+      const logicMatch = reportContent.match(/\[LOGIC:\s*(\d+)\]/i);
+      const linguisticsMatch = reportContent.match(/\[LINGUISTICS:\s*(\d+)\]/i);
+      const empathyMatch = reportContent.match(/\[EMPATHY:\s*(\d+)\]/i);
+
+      if (logicMatch) logicScore = parseInt(logicMatch[1]);
+      if (linguisticsMatch) linguisticsScore = parseInt(linguisticsMatch[1]);
+      if (empathyMatch) empathyScore = parseInt(empathyMatch[1]);
+
+      const cleanReportText = reportContent.replace(/\[LOGIC:.*\]|\[LINGUISTICS:.*\]|\[EMPATHY:.*\]/gi, '').trim();
+
+      try {
+        if (!reportContent.includes("불안정하여")) {
+          await Report.create({
+            roomName: room,
+            userIds: Array.from(roomData.userIds), 
+            type: roomData.type,
+            topic: roomData.topic || '알 수 없음',
+            participants: roomData.participants || 2,
+            fullLog: roomData.type === 'single' ? roomData.history.map(m => m.content) : roomData.history,
+            aiReport: cleanReportText,
+            stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore }
+          });
+        }
+      } catch (dbError) {
+        console.error("🔥 DB 저장 실패:", dbError);
+      }
+
+      if (reportContent.includes("불안정하여")) {
+        io.to(room).emit('receive_report', { error: true });
+      } else {
+        io.to(room).emit('receive_report', { reportText: cleanReportText });
+      }
+    }
+  }
+}, 1000);
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, '0.0.0.0', () => console.log(`🚀 WE US 구동 완료 (DB연동 완료) (포트: ${PORT})`));
