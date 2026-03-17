@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import html2canvas from 'html2canvas'; // ★ 추가된 이미지 렌더링 라이브러리
+import html2canvas from 'html2canvas'; 
+import { useSession, signIn, signOut } from 'next-auth/react'; // ★ 소셜 로그인 훅 추가
 
 const SERVER_URL = 'https://we-us-backend.onrender.com';
 
@@ -14,8 +15,10 @@ const LOBBY_CATEGORIES = [
 ];
 
 export default function WeUsApp() {
+  // ★ 로그인 상태 관리
+  const { data: session, status } = useSession();
+  
   const [activeTab, setActiveTab] = useState<'lobby' | 'myRecord'>('lobby');
-  const [userId, setUserId] = useState<string>('');
   const [myReports, setMyReports] = useState<any[]>([]); 
 
   const [step, setStep] = useState<'lobby' | 'waiting' | 'chat'>('lobby');
@@ -38,7 +41,6 @@ export default function WeUsApp() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [reportData, setReportData] = useState<string | null>(null);
   
-  // ★ 추가: 공유하기 위해 화면을 캡처할 타겟 Ref
   const reportCardRef = useRef<HTMLDivElement>(null); 
   const [isCapturing, setIsCapturing] = useState(false);
 
@@ -62,19 +64,15 @@ export default function WeUsApp() {
   }, [selectedTopic, isAnalyzing, reportData, showAd]);
 
   useEffect(() => {
-    let storedId = localStorage.getItem('weus_user_id');
-    if (!storedId) {
-      storedId = 'user_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
-      localStorage.setItem('weus_user_id', storedId);
-    }
-    setUserId(storedId);
-  }, []);
-
-  useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
+  // ★ 구글 이메일을 고유 ID로 사용 (없으면 대기)
+  const userId = session?.user?.email || '';
+
   useEffect(() => {
+    if (status !== 'authenticated') return; // 로그인 안 되어있으면 소켓 연결 안함
+
     socketRef.current = io(SERVER_URL);
 
     socketRef.current.on('receive_my_records', (records) => {
@@ -149,7 +147,7 @@ export default function WeUsApp() {
     });
 
     return () => { socketRef.current?.disconnect(); };
-  }, []); 
+  }, [status]); 
 
   useEffect(() => {
     if (activeTab === 'myRecord' && userId && socketRef.current) {
@@ -238,24 +236,14 @@ export default function WeUsApp() {
     }
   };
 
-  // ★ 혁신: 이미지 캡처 후 인스타 스토리(또는 네이티브) 공유 로직
   const handleShareCard = async () => {
     if (!reportCardRef.current) return;
     setIsCapturing(true);
 
     try {
-      // html2canvas로 현재 선택된 영역을 고화질 렌더링
-      const canvas = await html2canvas(reportCardRef.current, {
-        scale: 2, 
-        backgroundColor: '#0a0a0a', 
-        useCORS: true
-      });
-
-      // 캔버스를 이미지 파일(Blob)로 변환
+      const canvas = await html2canvas(reportCardRef.current, { scale: 2, backgroundColor: '#0a0a0a', useCORS: true });
       canvas.toBlob(async (blob) => {
         if (!blob) return;
-        
-        // Web Share API v2 지원 기기 (주로 모바일)
         if (navigator.share && navigator.canShare && navigator.canShare({ files: [new File([blob], 'weus_card.png', { type: 'image/png' })] })) {
           const file = new File([blob], 'weus_persona.png', { type: 'image/png' });
           await navigator.share({
@@ -264,7 +252,6 @@ export default function WeUsApp() {
             files: [file],
           });
         } else {
-          // PC 등 지원하지 않는 기기는 이미지 다운로드로 우회
           const link = document.createElement('a');
           link.href = canvas.toDataURL('image/png');
           link.download = 'weus_persona.png';
@@ -281,13 +268,11 @@ export default function WeUsApp() {
   };
 
   const currentOptions = LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.options || [];
-
   const totalPlayHours = (myReports.length * 3 / 60).toFixed(1);
 
   let avgLogic = 0, avgLinguistics = 0, avgEmpathy = 0;
   if (myReports.length > 0) {
-    let sumLogic = 0, sumLinguistics = 0, sumEmpathy = 0;
-    let validCount = 0;
+    let sumLogic = 0, sumLinguistics = 0, sumEmpathy = 0, validCount = 0;
     myReports.forEach(report => {
       if (report.stats) {
         sumLogic += report.stats.logic || 50;
@@ -308,25 +293,12 @@ export default function WeUsApp() {
   let tier = "Unranked";
   
   if (myReports.length > 0) {
-    if (avgLogic >= 75 && avgEmpathy <= 50) {
-      personaTitle = "🧊 차가운 팩트폭격기";
-      personaDesc = "감정보다는 철저한 논리와 팩트로 승부함";
-    } else if (avgLogic >= 70 && avgEmpathy > 50) {
-      personaTitle = "⚖️ 따뜻한 조언자";
-      personaDesc = "명확한 논리 위에 다정한 배려를 얹음";
-    } else if (avgLinguistics >= 75 && avgLogic <= 60) {
-      personaTitle = "✨ 감성적인 음유시인";
-      personaDesc = "아름답고 정교한 어휘로 감성을 전달함";
-    } else if (avgEmpathy >= 75 && avgLogic <= 60) {
-      personaTitle = "🕊️ 천사표 리스너";
-      personaDesc = "압도적인 공감 능력으로 상대의 무장해제를 이끌어냄";
-    } else if (avgLogic >= 80 && avgLinguistics >= 80) {
-      personaTitle = "👑 무자비한 토론 제왕";
-      personaDesc = "빈틈없는 논리와 유창한 어휘로 대화를 지배함";
-    } else {
-      personaTitle = "🌱 성장하는 소통러";
-      personaDesc = "다양한 대화 방식을 균형 있게 흡수하며 발전 중";
-    }
+    if (avgLogic >= 75 && avgEmpathy <= 50) { personaTitle = "🧊 차가운 팩트폭격기"; personaDesc = "감정보다는 철저한 논리와 팩트로 승부함"; }
+    else if (avgLogic >= 70 && avgEmpathy > 50) { personaTitle = "⚖️ 따뜻한 조언자"; personaDesc = "명확한 논리 위에 다정한 배려를 얹음"; }
+    else if (avgLinguistics >= 75 && avgLogic <= 60) { personaTitle = "✨ 감성적인 음유시인"; personaDesc = "아름답고 정교한 어휘로 감성을 전달함"; }
+    else if (avgEmpathy >= 75 && avgLogic <= 60) { personaTitle = "🕊️ 천사표 리스너"; personaDesc = "압도적인 공감 능력으로 상대의 무장해제를 이끌어냄"; }
+    else if (avgLogic >= 80 && avgLinguistics >= 80) { personaTitle = "👑 무자비한 토론 제왕"; personaDesc = "빈틈없는 논리와 유창한 어휘로 대화를 지배함"; }
+    else { personaTitle = "🌱 성장하는 소통러"; personaDesc = "다양한 대화 방식을 균형 있게 흡수하며 발전 중"; }
 
     const overallScore = (avgLogic + avgLinguistics + avgEmpathy) / 3;
     if (overallScore >= 90) tier = "Top 1%";
@@ -335,27 +307,82 @@ export default function WeUsApp() {
     else tier = "Top 50%";
   }
 
+  // ==========================================
+  // ★ 로그인 분기 처리 (인증되지 않은 유저는 로그인 창만 보임)
+  // ==========================================
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen bg-[#050505] flex items-center justify-center">
+        <div className="w-12 h-12 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (status === 'unauthenticated') {
+    return (
+      <div className="min-h-screen bg-[#050505] flex flex-col items-center justify-center p-6 relative overflow-hidden">
+        <div className="absolute top-[-20%] left-[-20%] w-[60%] h-[60%] bg-blue-900/10 blur-[150px] rounded-full pointer-events-none" />
+        <div className="absolute bottom-[-20%] right-[-20%] w-[60%] h-[60%] bg-emerald-900/10 blur-[150px] rounded-full pointer-events-none" />
+        
+        <div className="z-10 text-center max-w-sm w-full space-y-12">
+          <div className="space-y-4">
+            <h1 className="text-6xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-br from-white via-gray-300 to-gray-600 drop-shadow-2xl">
+              WE US.
+            </h1>
+            <p className="text-gray-400 font-light tracking-[0.2em] text-sm">
+              지적 자산이 되는 3분의 시간
+            </p>
+          </div>
+
+          <div className="bg-white/[0.02] backdrop-blur-xl border border-white/5 rounded-3xl p-8 shadow-2xl">
+            <button 
+              onClick={() => signIn('google')}
+              className="w-full flex items-center justify-center gap-4 bg-white text-black py-4 px-6 rounded-2xl font-bold tracking-wider hover:bg-gray-200 transition-all shadow-[0_0_20px_rgba(255,255,255,0.1)]"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 24 24">
+                <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+              </svg>
+              Google로 시작하기
+            </button>
+            <p className="text-[10px] text-white/30 mt-6 leading-relaxed">
+              로그인 시 10년간 대화 데이터가 안전하게 영구 보존되며,<br/>언제든 나의 소통 능력 티어를 확인할 수 있습니다.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#050505] text-gray-100 font-sans flex flex-col items-center justify-center p-4 relative overflow-hidden">
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/10 blur-[120px] rounded-full pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-900/10 blur-[120px] rounded-full pointer-events-none" />
 
-      {/* ============================== */}
-      {/* 10년 생존 비전: 타임리스 빅데이터 대시보드 UI (RECORD 탭) */}
-      {/* ============================== */}
       {step === 'lobby' && activeTab === 'myRecord' && (
         <div className="w-full max-w-lg h-[85vh] bg-[#080808]/90 backdrop-blur-2xl border border-white/5 rounded-[2rem] p-8 flex flex-col z-10 shadow-2xl relative overflow-hidden">
           
           <div className="flex justify-between items-end mb-8">
             <div>
               <h2 className="text-sm font-semibold tracking-[0.3em] text-white/50 mb-1">ANALYTICS</h2>
-              <p className="text-[10px] text-white/30 font-mono tracking-widest">ID: {userId.split('_')[1]}</p>
+              {/* ★ UUID 대신 구글 계정 이름/이메일 표시 */}
+              <p className="text-[10px] text-white/30 tracking-widest truncate max-w-[150px]">
+                {session?.user?.name || session?.user?.email}
+              </p>
             </div>
-            <div className="text-right">
-              <span className="text-[10px] text-white/40 tracking-widest uppercase block mb-1">Communication Tier</span>
+            <div className="text-right flex flex-col items-end gap-2">
               <span className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-blue-500">
                 {tier}
               </span>
+              {/* ★ 로그아웃 버튼 추가 */}
+              <button 
+                onClick={() => signOut()}
+                className="text-[9px] border border-white/20 text-white/40 px-2 py-1 rounded-md hover:bg-white/10 transition-colors"
+              >
+                로그아웃
+              </button>
             </div>
           </div>
 
@@ -431,9 +458,6 @@ export default function WeUsApp() {
         </div>
       )}
 
-      {/* ============================== */}
-      {/* 기존 LOBBY 화면 */}
-      {/* ============================== */}
       {step === 'lobby' && activeTab === 'lobby' && (
         <div className="text-center max-w-lg w-full space-y-8 z-10 h-[85vh] flex flex-col justify-center pb-16">
           <div className="space-y-2 mb-4">
@@ -545,7 +569,6 @@ export default function WeUsApp() {
         </div>
       )}
 
-      {/* 기존 CHAT 및 리포트/신고 모달 UI 유지 */}
       {step === 'chat' && (
         <div className="w-full max-w-lg h-[85vh] bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative z-10">
           
@@ -618,7 +641,6 @@ export default function WeUsApp() {
 
           {reportData && !showAd && (
             <div className="absolute inset-0 bg-[#050505]/95 flex flex-col items-center justify-center z-50 p-6 backdrop-blur-xl">
-              {/* ★ 혁신: 이미지 캡처 대상 영역 (ref=reportCardRef) */}
               <div 
                 ref={reportCardRef}
                 className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-8 w-full max-w-sm shadow-2xl flex flex-col"
@@ -641,7 +663,6 @@ export default function WeUsApp() {
                 </div>
               </div>
 
-              {/* 하단 액션 버튼들 (캡처 시에는 안 보이게 밖으로 뺌) */}
               <div className="w-full max-w-sm mt-6 flex gap-3 px-2">
                 <button
                   onClick={handleShareCard}

@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import Script from "next/script"; // ★ 구글 스크립트를 불러오기 위한 도구
+import Script from "next/script";
 import "./globals.css";
 import { Analytics } from '@vercel/analytics/react';
+import AuthProvider from './AuthProvider';
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,7 +28,6 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <head>
-        {/* ★ 구글 애드센스 스니펫 코드 삽입 */}
         <Script
           async
           src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2627794215633228"
@@ -36,7 +36,9 @@ export default function RootLayout({
         />
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        {children}
+        <AuthProvider>
+          {children}
+        </AuthProvider>
         <Analytics />
       </body>
     </html>
