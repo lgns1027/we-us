@@ -6,21 +6,35 @@ import html2canvas from 'html2canvas';
 
 const SERVER_URL = 'https://we-us-backend.onrender.com';
 
-// ★ 복구 완료: 대표님의 오리지널 기획인 4대 카테고리 시스템
 const LOBBY_CATEGORIES = [
   { id: 'daily', icon: '☕', title: '일상 라운지', desc: '부담 없는 스몰토크와 편안한 일상 대화', options: ['가벼운 스몰토크', '오늘 하루의 하이라이트', '요즘 꽂힌 취미 이야기'] },
   { id: 'lang', icon: '🌍', title: '어학 튜터링', desc: 'AI 튜터 및 글로벌 유저와 실전 회화', options: ['영어', '일본어', '프랑스어', '한국어(외국인용)'] },
   { id: 'deep', icon: '🍷', title: '딥 토크 살롱', desc: '일상에서 나누기 힘든 철학적, 지적 대화', options: ['최악의 이불킥 경험', '자본주의 생존기', '100억 받기 VS 무병장수'] },
-  { id: 'roleplay', icon: '🎭', title: '도파민 롤플레잉', desc: '스트레스 해소용 익명 상황극', options: ['진상손님 방어전 (알바생)', '압박 면접 (지원자)'] }
+  { id: 'roleplay', icon: '🎭', title: '도파민 롤플레잉', desc: '스트레스 해소용 익명 상황극', options: ['진상손님 방어전', '압박 면접'] } // (알바생), (지원자) 텍스트 제거
 ];
 
-// ★ 핵심 아키텍처: 대립각이 필요한 주제들의 역할 매핑 테이블
 const ROLE_MAP: Record<string, { roleA: string, roleB: string }> = {
   '100억 받기 VS 무병장수': { roleA: '100억 선택', roleB: '무병장수 선택' },
   '자본주의 생존기': { roleA: '자본주의 찬성론자', roleB: '자본주의 회의론자' },
   '최악의 이불킥 경험': { roleA: '썰 푸는 화자', roleB: '공감하는 리스너' },
-  '진상손님 방어전 (알바생)': { roleA: '알바생', roleB: '진상 손님' },
-  '압박 면접 (지원자)': { roleA: '지원자', roleB: '수석 면접관' }
+  '진상손님 방어전': { roleA: '알바생', roleB: '진상손님' },
+  '압박 면접': { roleA: '지원자', roleB: '면접관' }
+};
+
+// ★ 핵심 추가: 유저의 몰입도를 200% 끌어올릴 구체적인 딜레마 미션
+const ROLE_MISSIONS: Record<string, Record<string, string>> = {
+  '압박 면접': {
+    '지원자': "당신은 이력서에 '해외 영업 3년'이라 적었지만, 사실 워킹홀리데이 3개월이 전부입니다. 면접관의 압박을 3분간 어떻게든 방어하세요.",
+    '면접관': "눈앞의 지원자는 해외 영업 경력이 3년이라는데, 왠지 철저한 거짓말 같습니다. 3분 동안 집요하게 꼬리 질문을 던져 멘탈을 박살 내세요."
+  },
+  '진상손님 방어전': {
+    '알바생': "당신은 카페 알바생입니다. 손님이 다 마신 커피 얼음을 가져와서 '얼음이 너무 빨리 녹았다'며 새 음료로 환불을 요구합니다. 절대 환불해주지 마세요.",
+    '진상손님': "당신은 커피를 다 마셨지만 돈이 아깝습니다. 얼음이 너무 빨리 녹았다는 억지 논리를 펴서 어떻게든 알바생에게 전액 환불을 받아내세요."
+  },
+  '100억 받기 VS 무병장수': {
+    '100억 선택': "당신은 100억을 선택했습니다. 무병장수를 고른 상대에게 '돈 없는 장수는 저주'라는 논리로 팩트폭행을 가하세요.",
+    '무병장수 선택': "당신은 무병장수를 선택했습니다. 100억을 고른 상대에게 '건강을 잃으면 돈은 휴지조각'이라는 논리로 상대를 압도하세요."
+  }
 };
 
 export default function WeUsApp() {
@@ -28,7 +42,6 @@ export default function WeUsApp() {
   const [userId, setUserId] = useState<string>('');
   const [myReports, setMyReports] = useState<any[]>([]); 
 
-  // 스텝에 'role_select' 추가
   const [step, setStep] = useState<'lobby' | 'role_select' | 'waiting' | 'chat'>('lobby');
   const [timeLeft, setTimeLeft] = useState(180); 
   const [messages, setMessages] = useState<{ sender: string; text: string }[]>([]);
@@ -40,7 +53,6 @@ export default function WeUsApp() {
   const [selectedCategory, setSelectedCategory] = useState<string>('daily');
   const [selectedTopic, setSelectedTopic] = useState<string>('가벼운 스몰토크');
   
-  // 내 역할과 상대방 역할을 저장하는 state
   const [myRole, setMyRole] = useState<string>('');
   const [partnerRole, setPartnerRole] = useState<string>('');
 
@@ -79,7 +91,6 @@ export default function WeUsApp() {
     messagesRef.current = messages;
   }, [messages]);
 
-  // 구글 로그인 제거, 순수 LocalStorage 기반 UUID 발급 복구 (에러 방지)
   useEffect(() => {
     let storedId = localStorage.getItem('weus_user_id');
     if (!storedId) {
@@ -116,8 +127,12 @@ export default function WeUsApp() {
       setShowAd(false); 
       setIsTyping(false); 
       
-      const roleText = data.myRole ? `당신은 [${data.myRole}] 역할을 배정받았습니다.` : '';
-      setMessages([{ sender: 'System', text: `[${stateRefs.current.selectedTopic}] 매칭 완료! ${roleText}` }]);
+      // ★ 미션 텍스트 적용
+      const topic = stateRefs.current.selectedTopic;
+      const role = data.myRole;
+      const missionText = ROLE_MISSIONS[topic]?.[role] || `당신은 [${role}] 역할을 배정받았습니다. 상대방과 대화를 시작해 보세요.`;
+      
+      setMessages([{ sender: 'System', text: `🎯 [미션 하달]\n${missionText}` }]);
       
       lastInteractionTime.current = Date.now();
       if (socketRef.current?.id === data.hostId) setIsHost(true);
@@ -170,7 +185,6 @@ export default function WeUsApp() {
     return () => { socketRef.current?.disconnect(); };
   }, [userId]); 
 
-  // 마이페이지 탭 이동 시 최신 기록 갱신
   useEffect(() => {
     if (activeTab === 'myRecord' && userId && socketRef.current) {
       socketRef.current.emit('request_my_records', userId);
@@ -219,7 +233,6 @@ export default function WeUsApp() {
     e.preventDefault();
     if (!inputText.trim() || !room) return;
     
-    // 본인의 화면에는 myRole(예: 지원자) 이름으로 표시되도록 수정
     setMessages((prev) => [...prev, { sender: myRole || '나', text: inputText }]);
     socketRef.current?.emit('send_message', { room: room, roomId: room, text: inputText, partner: partnerRole });
     setInputText('');
@@ -291,18 +304,15 @@ export default function WeUsApp() {
     }
   };
 
-  // ★ 아키텍처: 매칭 시작 버튼 클릭 시 역할이 필요한 주제인지 판별
   const handleMatchStart = (isAiMode: boolean) => {
     setIsConnecting(true);
     setIsSingleMode(isAiMode);
     
     const roleData = ROLE_MAP[selectedTopic];
     if (roleData) {
-      // 대립각이 있는 주제면 역할 선택 모달로 이동
       setStep('role_select');
       setIsConnecting(false);
     } else {
-      // 일반 주제(스몰토크 등)는 바로 랜덤 매칭 시작
       if (isAiMode) {
         socketRef.current?.emit('start_ai_chat', { topic: selectedTopic, myRole: '익명', aiRole: 'AI 파트너' });
       } else {
@@ -312,13 +322,12 @@ export default function WeUsApp() {
     }
   };
 
-  // 역할 모달에서 큐 조인 처리
   const confirmRoleAndJoin = (chosenRole: 'A' | 'B' | 'random') => {
     setIsConnecting(true);
     const roleData = ROLE_MAP[selectedTopic];
     
     if (isSingleMode) {
-       const myRoleName = chosenRole === 'A' ? roleData.roleA : chosenRole === 'B' ? roleData.roleB : roleData.roleA; // 랜덤일 경우 기본값 A
+       const myRoleName = chosenRole === 'A' ? roleData.roleA : chosenRole === 'B' ? roleData.roleB : roleData.roleA; 
        const aiRoleName = chosenRole === 'A' ? roleData.roleB : chosenRole === 'B' ? roleData.roleA : roleData.roleB;
        socketRef.current?.emit('start_ai_chat', { topic: selectedTopic, myRole: myRoleName, aiRole: aiRoleName });
     } else {
@@ -378,9 +387,7 @@ export default function WeUsApp() {
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/10 blur-[120px] rounded-full pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-900/10 blur-[120px] rounded-full pointer-events-none" />
 
-      {/* ============================== */}
       {/* RECORD 탭 */}
-      {/* ============================== */}
       {step === 'lobby' && activeTab === 'myRecord' && (
         <div className="w-full max-w-lg h-[85vh] bg-[#080808]/90 backdrop-blur-2xl border border-white/5 rounded-[2rem] p-8 flex flex-col z-10 shadow-2xl relative overflow-hidden">
           <div className="flex justify-between items-end mb-8">
@@ -463,9 +470,7 @@ export default function WeUsApp() {
         </div>
       )}
 
-      {/* ============================== */}
-      {/* ★ 복원 완료: 정통 LOBBY 화면 (카테고리 4개 + 드롭다운) */}
-      {/* ============================== */}
+      {/* LOBBY 화면 */}
       {step === 'lobby' && activeTab === 'lobby' && (
         <div className="text-center max-w-lg w-full space-y-8 z-10 h-[85vh] flex flex-col justify-center pb-16">
           <div className="space-y-2 mb-4">
@@ -533,9 +538,7 @@ export default function WeUsApp() {
         </div>
       )}
 
-      {/* ============================== */}
-      {/* ★ 아키텍처 연동: 역할 선택 모달 (대립형 주제 전용) */}
-      {/* ============================== */}
+      {/* 역할 선택 모달 */}
       {step === 'role_select' && currentRoleData && (
         <div className="text-center max-w-sm w-full z-10 h-[85vh] flex flex-col justify-center">
           <div className="bg-[#080808]/90 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-8 shadow-2xl">
@@ -545,35 +548,23 @@ export default function WeUsApp() {
             </p>
             
             <div className="space-y-3 mb-6">
-              <button 
-                onClick={() => confirmRoleAndJoin('A')} 
-                className="w-full bg-white/5 hover:bg-white/10 border border-emerald-500/30 py-4 rounded-xl font-bold text-emerald-400 transition flex justify-between px-6"
-              >
+              <button onClick={() => confirmRoleAndJoin('A')} className="w-full bg-white/5 hover:bg-white/10 border border-emerald-500/30 py-4 rounded-xl font-bold text-emerald-400 transition flex justify-between px-6">
                 <span>{currentRoleData.roleA}</span>
-                <span className="text-[10px] font-normal text-white/40 flex items-center">참여하기 ➔</span>
+                <span className="text-[10px] font-normal text-white/40 flex items-center">선택 ➔</span>
               </button>
-              <button 
-                onClick={() => confirmRoleAndJoin('B')} 
-                className="w-full bg-white/5 hover:bg-white/10 border border-blue-500/30 py-4 rounded-xl font-bold text-blue-400 transition flex justify-between px-6"
-              >
+              <button onClick={() => confirmRoleAndJoin('B')} className="w-full bg-white/5 hover:bg-white/10 border border-blue-500/30 py-4 rounded-xl font-bold text-blue-400 transition flex justify-between px-6">
                 <span>{currentRoleData.roleB}</span>
-                <span className="text-[10px] font-normal text-white/40 flex items-center">참여하기 ➔</span>
+                <span className="text-[10px] font-normal text-white/40 flex items-center">선택 ➔</span>
               </button>
               {!isSingleMode && (
-                <button 
-                  onClick={() => confirmRoleAndJoin('random')} 
-                  className="w-full bg-white/5 hover:bg-white/10 border border-white/10 py-4 rounded-xl font-bold text-white/80 transition flex justify-between px-6"
-                >
+                <button onClick={() => confirmRoleAndJoin('random')} className="w-full bg-white/5 hover:bg-white/10 border border-white/10 py-4 rounded-xl font-bold text-white/80 transition flex justify-between px-6">
                   <span>상관없음 (랜덤)</span>
                   <span className="text-[10px] font-normal text-white/40 flex items-center">빠른매칭 ➔</span>
                 </button>
               )}
             </div>
-            <button 
-              onClick={() => { setStep('lobby'); setIsConnecting(false); }} 
-              className="text-xs text-white/30 hover:text-white/60 underline tracking-widest"
-            >
-              로비로 돌아가기
+            <button onClick={() => { setStep('lobby'); setIsConnecting(false); }} className="text-xs text-white/30 hover:text-white/60 underline tracking-widest">
+              뒤로 가기
             </button>
           </div>
         </div>
@@ -581,18 +572,8 @@ export default function WeUsApp() {
 
       {step === 'lobby' && (
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center bg-black/60 backdrop-blur-xl border border-white/10 rounded-full p-1.5 z-20 shadow-2xl">
-          <button 
-            onClick={() => setActiveTab('lobby')}
-            className={`px-8 py-3 rounded-full text-sm font-bold tracking-widest transition-all ${activeTab === 'lobby' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}
-          >
-            LOBBY
-          </button>
-          <button 
-            onClick={() => setActiveTab('myRecord')}
-            className={`px-8 py-3 rounded-full text-sm font-bold tracking-widest transition-all ${activeTab === 'myRecord' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}
-          >
-            RECORD
-          </button>
+          <button onClick={() => setActiveTab('lobby')} className={`px-8 py-3 rounded-full text-sm font-bold tracking-widest transition-all ${activeTab === 'lobby' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>LOBBY</button>
+          <button onClick={() => setActiveTab('myRecord')} className={`px-8 py-3 rounded-full text-sm font-bold tracking-widest transition-all ${activeTab === 'myRecord' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>RECORD</button>
         </div>
       )}
 
@@ -607,14 +588,11 @@ export default function WeUsApp() {
             <p className="text-sm text-white/60">{selectedTopic}</p>
           </div>
           <div className="pt-8">
-            <button onClick={() => { setStep('lobby'); setIsConnecting(false); }} className="text-sm text-white/30 hover:text-white/80 underline tracking-widest transition-colors">
-              취소
-            </button>
+            <button onClick={() => { setStep('lobby'); setIsConnecting(false); }} className="text-sm text-white/30 hover:text-white/80 underline tracking-widest transition-colors">취소</button>
           </div>
         </div>
       )}
 
-      {/* 기존 CHAT 및 리포트/신고 모달 UI */}
       {step === 'chat' && (
         <div className="w-full max-w-lg h-[85vh] bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative z-10">
           
@@ -699,13 +677,9 @@ export default function WeUsApp() {
                 </span>
                 <div className="flex items-center gap-1">
                   {!isSingleMode && (
-                    <button onClick={() => setIsReportModalOpen(true)} className="bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[10px] px-2.5 py-1 rounded-full transition-colors border border-transparent hover:border-red-500/30 font-bold">
-                      🚨 신고
-                    </button>
+                    <button onClick={() => setIsReportModalOpen(true)} className="bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[10px] px-2.5 py-1 rounded-full transition-colors border border-transparent hover:border-red-500/30 font-bold">🚨 신고</button>
                   )}
-                  <button onClick={leaveRoom} className="bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/80 text-[10px] px-2.5 py-1 rounded-full transition-colors border border-transparent">
-                    나가기
-                  </button>
+                  <button onClick={leaveRoom} className="bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/80 text-[10px] px-2.5 py-1 rounded-full transition-colors border border-transparent">나가기</button>
                 </div>
               </div>
               <span className="text-xs text-emerald-400 font-bold tracking-wider pt-1">
@@ -720,9 +694,13 @@ export default function WeUsApp() {
           <div className="flex-1 p-5 overflow-y-auto space-y-4 pb-24 flex flex-col">
             {messages.map((msg, idx) => (
               <div key={idx} className={`flex ${msg.sender === myRole || msg.sender === '나' ? 'justify-end' : msg.sender === 'System' ? 'justify-center' : 'justify-start'}`}>
-                <div className={`max-w-[80%] p-3.5 rounded-2xl text-[15px] leading-relaxed ${msg.sender === myRole || msg.sender === '나' ? 'bg-white text-black rounded-tr-sm' : msg.sender === 'System' ? 'bg-transparent text-white/40 text-xs border border-white/10 rounded-full px-5 py-2 text-center' : 'bg-white/10 text-white rounded-tl-sm'}`}>
+                {/* ★ 시스템 메시지(미션) 가독성을 위해 디자인 변경 */}
+                <div className={`max-w-[85%] p-4 rounded-2xl text-[14px] leading-relaxed 
+                  ${msg.sender === myRole || msg.sender === '나' ? 'bg-white text-black rounded-tr-sm' : 
+                    msg.sender === 'System' ? 'bg-emerald-900/20 text-emerald-100 border border-emerald-500/30 rounded-xl w-full mx-auto text-center font-medium tracking-wide shadow-lg' : 
+                    'bg-white/10 text-white rounded-tl-sm'}`}>
                   {msg.sender !== 'System' && <span className={`text-[11px] block mb-1 font-bold ${msg.sender === myRole || msg.sender === '나' ? 'text-gray-500' : 'text-white/40'}`}>{msg.sender}</span>}
-                  <span>{msg.text}</span>
+                  <span className="whitespace-pre-line">{msg.text}</span>
                 </div>
               </div>
             ))}
