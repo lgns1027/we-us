@@ -138,7 +138,6 @@ export default function WeUsApp() {
 
     socketRef.current.on('receive_message', (data) => {
       setIsTyping(false); 
-      // ★ 추가: 지저분한 중복 시스템 메시지 필터링
       if (data.sender === 'System' && data.text.includes('모드가 시작되었습니다')) return;
       
       setMessages((prev) => [...prev, { sender: data.sender, text: data.text }]);
@@ -384,14 +383,15 @@ export default function WeUsApp() {
   }
 
   return (
-    <div className="min-h-screen bg-[#050505] text-gray-100 font-sans flex flex-col items-center justify-center p-4 relative overflow-hidden">
+    // ★ 최상단 컨테이너 h-[100dvh] 적용하여 모바일 화면 높이에 정확히 일치시킴
+    <div className="h-[100dvh] w-full bg-[#050505] text-gray-100 font-sans flex flex-col items-center relative overflow-hidden">
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/10 blur-[120px] rounded-full pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-900/10 blur-[120px] rounded-full pointer-events-none" />
 
-      {/* RECORD 탭 */}
+      {/* RECORD 탭 - 상하 여백 조정 및 flex-1 할당 */}
       {step === 'lobby' && activeTab === 'myRecord' && (
-        <div className="w-full max-w-lg h-[85vh] bg-[#080808]/90 backdrop-blur-2xl border border-white/5 rounded-[2rem] p-8 flex flex-col z-10 shadow-2xl relative overflow-hidden">
-          <div className="flex justify-between items-end mb-8">
+        <div className="w-full max-w-lg flex-1 mt-6 mb-[120px] bg-[#080808]/90 backdrop-blur-2xl border border-white/5 rounded-[2rem] p-8 flex flex-col z-10 shadow-2xl relative overflow-hidden">
+          <div className="flex justify-between items-end mb-8 shrink-0">
             <div>
               <h2 className="text-sm font-semibold tracking-[0.3em] text-white/50 mb-1">ANALYTICS</h2>
               <p className="text-[10px] text-white/30 tracking-widest truncate max-w-[150px]">{userId}</p>
@@ -401,7 +401,7 @@ export default function WeUsApp() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 mb-6">
+          <div className="grid grid-cols-2 gap-3 mb-6 shrink-0">
             <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 flex flex-col justify-between hover:bg-white/[0.04] transition-colors">
               <span className="text-[10px] text-white/40 tracking-widest uppercase mb-2">누적 지적 자산</span>
               <span className="text-2xl font-light text-white mb-1">{totalPlayHours}<span className="text-sm text-white/30 ml-1">hrs</span></span>
@@ -414,7 +414,7 @@ export default function WeUsApp() {
             </div>
           </div>
 
-          <div className="space-y-5 mb-8">
+          <div className="space-y-5 mb-8 shrink-0">
             <div>
               <div className="flex justify-between text-[11px] font-medium text-white/60 mb-1.5 uppercase tracking-wider">
                 <span>논리적 압도력 (Logic)</span>
@@ -444,7 +444,7 @@ export default function WeUsApp() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto space-y-0 -mx-4 px-4 pb-20 scrollbar-hide">
+          <div className="flex-1 overflow-y-auto space-y-0 -mx-4 px-4 pb-10 scrollbar-hide">
             <h3 className="text-[10px] text-white/30 tracking-widest uppercase mb-4 sticky top-0 bg-[#080808]/90 backdrop-blur-md py-2">
               최근 인사이트 노트
             </h3>
@@ -471,17 +471,17 @@ export default function WeUsApp() {
         </div>
       )}
 
-      {/* LOBBY 화면 - ★ 하단 여백 대폭 증가 (pb-32) */}
+      {/* LOBBY 화면 - ★ flex-1 과 overflow-y-auto 지정 및 하단 여백 추가 */}
       {step === 'lobby' && activeTab === 'lobby' && (
-        <div className="text-center max-w-lg w-full space-y-8 z-10 h-[85vh] flex flex-col justify-center pb-32">
-          <div className="space-y-2 mb-4">
+        <div className="text-center w-full max-w-lg flex-1 flex flex-col justify-center space-y-8 z-10 px-4 pt-10 pb-[140px] overflow-y-auto scrollbar-hide">
+          <div className="space-y-2 mb-2 shrink-0">
             <h1 className="text-4xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-500 drop-shadow-lg">
               WE US.
             </h1>
             <p className="text-gray-400 font-light tracking-widest text-xs">우리가 되어가는 3분의 시간</p>
           </div>
           
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 gap-2 shrink-0">
             {LOBBY_CATEGORIES.map(cat => (
               <button
                 key={cat.id}
@@ -489,27 +489,27 @@ export default function WeUsApp() {
                   setSelectedCategory(cat.id);
                   setSelectedTopic(cat.options[0]); 
                 }}
-                className={`p-3 rounded-2xl flex flex-col items-center justify-center gap-1.5 transition-all border ${
+                className={`p-3.5 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all border ${
                   selectedCategory === cat.id 
                   ? 'bg-white/10 border-white/30 shadow-[0_0_15px_rgba(255,255,255,0.1)]' 
                   : 'bg-white/[0.02] border-white/5 opacity-50 hover:opacity-100'
                 }`}
               >
-                <span className="text-xl mb-1">{cat.icon}</span>
-                <span className="text-[10px] font-bold tracking-wider text-white whitespace-nowrap">{cat.title}</span>
+                <span className="text-2xl mb-1">{cat.icon}</span>
+                <span className="text-[11px] font-bold tracking-wider text-white whitespace-nowrap">{cat.title}</span>
               </button>
             ))}
           </div>
 
-          <div className="bg-white/[0.03] backdrop-blur-xl p-6 rounded-3xl border border-white/5 shadow-2xl space-y-6">
+          <div className="bg-white/[0.03] backdrop-blur-xl p-6 rounded-3xl border border-white/5 shadow-2xl space-y-6 shrink-0">
             <div className="flex flex-col text-left space-y-3">
-              <label className="text-[11px] text-emerald-400 uppercase tracking-widest font-bold">
+              <label className="text-[12px] text-emerald-400 uppercase tracking-widest font-bold">
                 {LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.desc}
               </label>
               <select 
                 value={selectedTopic} 
                 onChange={(e) => setSelectedTopic(e.target.value)}
-                className="bg-black/40 border border-white/10 text-white text-sm rounded-xl focus:ring-1 focus:ring-white/30 focus:border-white/30 block w-full p-4 outline-none cursor-pointer appearance-none transition-all"
+                className="bg-black/40 border border-white/10 text-white text-[15px] rounded-xl focus:ring-1 focus:ring-white/30 focus:border-white/30 block w-full p-4 outline-none cursor-pointer appearance-none transition-all"
               >
                 {currentOptions.map(opt => (
                   <option key={opt} value={opt}>{opt}</option>
@@ -521,7 +521,7 @@ export default function WeUsApp() {
               <button 
                 disabled={isConnecting}
                 onClick={() => handleMatchStart(false)}
-                className="w-full bg-white text-black font-extrabold tracking-wide py-4 rounded-xl hover:bg-gray-200 transition-all shadow-lg flex justify-center items-center gap-2 text-sm"
+                className="w-full bg-white text-black font-extrabold tracking-wide py-4.5 rounded-xl hover:bg-gray-200 transition-all shadow-lg flex justify-center items-center gap-2 text-[15px]"
               >
                 {isConnecting && !isSingleMode ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"/> : null}
                 익명 매칭 시작하기
@@ -529,7 +529,7 @@ export default function WeUsApp() {
               <button 
                 disabled={isConnecting}
                 onClick={() => handleMatchStart(true)}
-                className="w-full bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-4 rounded-xl border border-white/10 transition-all flex justify-center items-center gap-2 text-sm"
+                className="w-full bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-4.5 rounded-xl border border-white/10 transition-all flex justify-center items-center gap-2 text-[15px]"
               >
                 {isConnecting && isSingleMode ? <div className="w-4 h-4 border-2 border-white/50 border-t-transparent rounded-full animate-spin"/> : null}
                 AI와 먼저 연습하기
@@ -539,10 +539,10 @@ export default function WeUsApp() {
         </div>
       )}
 
-      {/* 역할 선택 모달 - ★ 하단 여백 증가 (pb-24) */}
+      {/* 역할 선택 모달 - 모바일 유동 높이 대응 */}
       {step === 'role_select' && currentRoleData && (
-        <div className="text-center max-w-sm w-full z-10 h-[85vh] flex flex-col justify-center pb-24">
-          <div className="bg-[#080808]/90 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-8 shadow-2xl">
+        <div className="text-center w-full max-w-sm flex-1 flex flex-col justify-center z-10 px-4 pb-[120px] overflow-y-auto">
+          <div className="bg-[#080808]/90 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-8 shadow-2xl shrink-0">
             <h2 className="text-lg font-bold text-white mb-2">역할을 선택하세요</h2>
             <p className="text-xs text-white/50 mb-8 tracking-widest break-keep">
               [{selectedTopic}] 1:1 대결을 위한 역할을 고릅니다.
@@ -571,15 +571,17 @@ export default function WeUsApp() {
         </div>
       )}
 
+      {/* 하단 절대 위치 네비게이션 */}
       {step === 'lobby' && (
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center bg-black/60 backdrop-blur-xl border border-white/10 rounded-full p-1.5 z-20 shadow-2xl">
-          <button onClick={() => setActiveTab('lobby')} className={`px-8 py-3 rounded-full text-sm font-bold tracking-widest transition-all ${activeTab === 'lobby' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>LOBBY</button>
-          <button onClick={() => setActiveTab('myRecord')} className={`px-8 py-3 rounded-full text-sm font-bold tracking-widest transition-all ${activeTab === 'myRecord' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>RECORD</button>
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center bg-black/60 backdrop-blur-xl border border-white/10 rounded-full p-1.5 z-20 shadow-2xl">
+          <button onClick={() => setActiveTab('lobby')} className={`px-8 py-3.5 rounded-full text-[13px] font-bold tracking-widest transition-all ${activeTab === 'lobby' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>LOBBY</button>
+          <button onClick={() => setActiveTab('myRecord')} className={`px-8 py-3.5 rounded-full text-[13px] font-bold tracking-widest transition-all ${activeTab === 'myRecord' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>RECORD</button>
         </div>
       )}
 
+      {/* 대기중 화면 */}
       {step === 'waiting' && (
-        <div className="text-center space-y-6 z-10">
+        <div className="text-center space-y-6 z-10 flex-1 flex flex-col justify-center pb-[120px]">
           <div className="relative w-20 h-20 mx-auto">
             <div className="absolute inset-0 border-2 border-white/20 rounded-full"></div>
             <div className="absolute inset-0 border-2 border-white rounded-full border-t-transparent animate-spin"></div>
@@ -602,7 +604,7 @@ export default function WeUsApp() {
 
       {/* CHAT 화면 */}
       {step === 'chat' && (
-        <div className="w-full max-w-lg h-[85vh] bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative z-10">
+        <div className="w-full max-w-lg flex-1 my-4 bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative z-10">
           
           {isReportModalOpen && (
             <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-[70] p-6 backdrop-blur-sm">
@@ -676,14 +678,13 @@ export default function WeUsApp() {
             </div>
           )}
 
-          <div className="bg-white/[0.02] p-5 flex justify-between items-center border-b border-white/5">
+          <div className="bg-white/[0.02] p-5 flex justify-between items-center border-b border-white/5 shrink-0">
             <div className="flex flex-col gap-1 min-w-0">
               <div className="flex items-center gap-3">
                 <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
                 <span className="font-semibold text-sm text-white/90 truncate">
                   {isSingleMode ? `AI 싱글: ${selectedTopic}` : `${selectedTopic}`}
                 </span>
-                {/* ★ 버튼 줄바꿈 방지 적용 (whitespace-nowrap, shrink-0) */}
                 <div className="flex items-center gap-1 shrink-0">
                   {!isSingleMode && (
                     <button onClick={() => setIsReportModalOpen(true)} className="bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[10px] px-2.5 py-1 rounded-full transition-colors border border-transparent hover:border-red-500/30 font-bold whitespace-nowrap shrink-0">🚨 신고</button>
@@ -732,7 +733,7 @@ export default function WeUsApp() {
             </div>
           )}
 
-          <form onSubmit={sendMessage} className="p-4 bg-[#050505] border-t border-white/5 flex gap-2 z-10 relative">
+          <form onSubmit={sendMessage} className="p-4 bg-[#050505] border-t border-white/5 flex gap-2 z-10 relative shrink-0">
             <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} disabled={isAnalyzing || !!reportData || showAd} placeholder="메시지 입력..." className="flex-1 bg-white/5 text-white px-5 py-3.5 rounded-full outline-none focus:bg-white/10 transition-colors disabled:opacity-50 text-sm placeholder:text-white/20 border border-transparent focus:border-white/10"/>
             <button type="submit" disabled={isAnalyzing || !!reportData || showAd || !inputText.trim()} className="bg-white text-black w-12 h-12 rounded-full flex items-center justify-center font-bold hover:bg-gray-200 disabled:opacity-50 transition-colors shrink-0">↑</button>
           </form>
