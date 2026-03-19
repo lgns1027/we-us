@@ -12,7 +12,6 @@ const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] } 
 });
 
-// 1. DB 연결 (안전장치 복구)
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log("🍃 MongoDB 연결 성공! 대화 기록이 영구 저장됩니다."))
   .catch(err => console.error("❌ DB 연결 실패 (서버 환경을 확인하세요):", err));
@@ -44,12 +43,10 @@ const Blacklist = mongoose.model('Blacklist', BlacklistSchema);
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// 2. 큐 및 상태 관리 변수
 const waitingQueues = {}; 
 const activeRooms = {};   
 const roomVotes = {};
 
-// 3. AI 통신 엔진 (에러 추적 로그 복구)
 async function getGoogleAIResponse(systemPrompt, history, maxTokens = 150) {
   const modelsToTry = [
     "gemma-3-12b-it", 
@@ -81,7 +78,6 @@ async function getGoogleAIResponse(systemPrompt, history, maxTokens = 150) {
         return responseText.trim();
       }
     } catch (error) {
-      // 어떤 모델에서 왜 죽었는지 추적하기 위한 로그 복구
       console.error(`🚨 [AI 오류] ${modelName} 통신 실패 - 사유: ${error.message}`);
     }
   }
@@ -98,7 +94,6 @@ function filterProfanity(text) {
   return filtered;
 }
 
-// 4. 프롬프트 동적 생성기 (50자 제한, 도발 금지, 판정 고도화)
 function getPersonaPrompt(topic, isReport = false, partnerRole = '') {
   if (isReport) {
     const basePrompt = `당신은 냉철하고 객관적인 대화 심판관입니다. 대화 기록을 분석하여 다음 내용을 매우 구체적으로 작성하세요.
@@ -128,7 +123,6 @@ function getPersonaPrompt(topic, isReport = false, partnerRole = '') {
   }
 }
 
-// 5. 1:1 역할 강제 매칭 알고리즘
 function tryMatch(topicKey) {
   const q = waitingQueues[topicKey];
   if (!q) return;
@@ -143,7 +137,7 @@ function tryMatch(topicKey) {
       isGeneratingReport: false, 
       topic: topicKey, 
       userIds: new Set(),
-      endTime: Date.now() + (180 * 1000) // 절대 시간 부여
+      endTime: Date.now() + (180 * 1000)
     };
 
     user1.join(roomName);
@@ -160,7 +154,6 @@ function tryMatch(topicKey) {
     console.log(`✅ [매칭 성공] ${roomName} 생성 (${role1} vs ${role2})`);
   };
 
-  // 3방향 큐 매칭 로직
   if (q.roleA.length > 0 && q.roleB.length > 0) {
     createRoom(q.roleA.shift().socket, q.roleB.shift().socket, q.roleA_name, q.roleB_name);
   } else if (q.roleA.length > 0 && q.random.length > 0) {
@@ -172,7 +165,6 @@ function tryMatch(topicKey) {
   }
 }
 
-// 6. 소켓 통신 로직
 io.on('connection', (socket) => {
   
   socket.on('join_queue', (data) => {
@@ -193,6 +185,19 @@ io.on('connection', (socket) => {
 
     console.log(`⏳ [대기열 진입] 유저: ${socket.id} | 주제: ${topic} | 역할: ${role}`);
     tryMatch(topic);
+  });
+
+  // ★ 추가: 대기열 강제 이탈 처리 (유령 큐 버그 해결)
+  socket.on('leave_queue', () => {
+    const topic = socket.queueTopic;
+    const role = socket.queueRole;
+    if (topic && waitingQueues[topic]) {
+      const targetQueue = role === 'A' ? 'roleA' : role === 'B' ? 'roleB' : 'random';
+      waitingQueues[topic][targetQueue] = waitingQueues[topic][targetQueue].filter(s => s.id !== socket.id);
+      console.log(`📉 [대기열 취소] 유저: ${socket.id} | 주제: ${topic}`);
+      socket.queueTopic = null;
+      socket.queueRole = null;
+    }
   });
 
   socket.on('start_ai_chat', (data) => {
@@ -231,7 +236,6 @@ io.on('connection', (socket) => {
       roomData.history.push({ role: 'user', content: `${socket.userAlias}: ${cleanText}` }); 
       
       const systemPrompt = getPersonaPrompt(roomData.topic, false, socket.aiPartnerRole);
-      // 토큰 제한을 넉넉히 150으로 주어 말 끊김 방지
       const aiReply = await getGoogleAIResponse(systemPrompt, roomData.history.slice(-8), 150); 
       
       roomData.history.push({ role: 'assistant', content: `${socket.aiPartnerRole}: ${aiReply}` }); 
@@ -252,7 +256,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // AI 심판의 정적 깨기 지원 (도발 제거, 부드러운 가이드)
   socket.on('request_ai_help', async (data) => {
     const roomData = activeRooms[data.room];
     if (!roomData) return;
@@ -328,24 +331,19 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    // 큐에 있던 유저가 끊기면 큐에서 제거
     if (socket.queueTopic && waitingQueues[socket.queueTopic]) {
       const targetQueue = socket.queueRole === 'A' ? 'roleA' : socket.queueRole === 'B' ? 'roleB' : 'random';
       waitingQueues[socket.queueTopic][targetQueue] = waitingQueues[socket.queueTopic][targetQueue].filter(s => s.id !== socket.id);
-      console.log(`📉 [대기열 이탈] 유저: ${socket.id}`);
+      console.log(`📉 [대기열 이탈(연결끊김)] 유저: ${socket.id}`);
     }
   });
 });
 
-// ==========================================
-// 7. 서버 주도형 타이머 및 리포트 자동 발급기 (Garbage Collector)
-// ==========================================
 setInterval(async () => {
   const now = Date.now();
   for (const room in activeRooms) {
     const roomData = activeRooms[room];
     
-    // 시간이 다 되었고 리포트가 안 만들어졌다면
     if (now >= roomData.endTime && !roomData.isGeneratingReport) {
       roomData.isGeneratingReport = true;
       console.log(`⏱️ [서버 타이머] ${room} 대화 종료. AI 판정 리포트 생성 시작...`);
@@ -359,7 +357,6 @@ setInterval(async () => {
       const systemPrompt = getPersonaPrompt(roomData.topic, true);
       const conversationText = roomData.history.join('\n');
       
-      // 판정의 질을 높이기 위해 리포트 발급 토큰은 넉넉히 400으로 설정
       const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 400); 
       
       let logicScore = 50, linguisticsScore = 50, empathyScore = 50;

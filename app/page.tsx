@@ -577,7 +577,7 @@ export default function WeUsApp() {
         </div>
       )}
 
-      {step === 'waiting' && (
+{step === 'waiting' && (
         <div className="text-center space-y-6 z-10">
           <div className="relative w-20 h-20 mx-auto">
             <div className="absolute inset-0 border-2 border-white/20 rounded-full"></div>
@@ -588,7 +588,13 @@ export default function WeUsApp() {
             <p className="text-sm text-white/60">{selectedTopic}</p>
           </div>
           <div className="pt-8">
-            <button onClick={() => { setStep('lobby'); setIsConnecting(false); }} className="text-sm text-white/30 hover:text-white/80 underline tracking-widest transition-colors">취소</button>
+            <button onClick={() => { 
+              setStep('lobby'); 
+              setIsConnecting(false);
+              socketRef.current?.emit('leave_queue'); // ★ 대기열 삭제 신호 추가
+            }} className="text-sm text-white/30 hover:text-white/80 underline tracking-widest transition-colors">
+              취소
+            </button>
           </div>
         </div>
       )}
