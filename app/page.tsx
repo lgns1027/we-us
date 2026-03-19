@@ -10,7 +10,7 @@ const LOBBY_CATEGORIES = [
   { id: 'daily', icon: '☕', title: '일상 라운지', desc: '부담 없는 스몰토크와 편안한 일상 대화', options: ['가벼운 스몰토크', '오늘 하루의 하이라이트', '요즘 꽂힌 취미 이야기'] },
   { id: 'lang', icon: '🌍', title: '어학 튜터링', desc: 'AI 튜터 및 글로벌 유저와 실전 회화', options: ['영어', '일본어', '프랑스어', '한국어(외국인용)'] },
   { id: 'deep', icon: '🍷', title: '딥 토크 살롱', desc: '일상에서 나누기 힘든 철학적, 지적 대화', options: ['최악의 이불킥 경험', '자본주의 생존기', '100억 받기 VS 무병장수'] },
-  { id: 'roleplay', icon: '🎭', title: '도파민 롤플레잉', desc: '스트레스 해소용 익명 상황극', options: ['진상손님 방어전', '압박 면접'] } // (알바생), (지원자) 텍스트 제거
+  { id: 'roleplay', icon: '🎭', title: '도파민 롤플레잉', desc: '스트레스 해소용 익명 상황극', options: ['진상손님 방어전', '압박 면접'] }
 ];
 
 const ROLE_MAP: Record<string, { roleA: string, roleB: string }> = {
@@ -21,7 +21,6 @@ const ROLE_MAP: Record<string, { roleA: string, roleB: string }> = {
   '압박 면접': { roleA: '지원자', roleB: '면접관' }
 };
 
-// ★ 핵심 추가: 유저의 몰입도를 200% 끌어올릴 구체적인 딜레마 미션
 const ROLE_MISSIONS: Record<string, Record<string, string>> = {
   '압박 면접': {
     '지원자': "당신은 이력서에 '해외 영업 3년'이라 적었지만, 사실 워킹홀리데이 3개월이 전부입니다. 면접관의 압박을 3분간 어떻게든 방어하세요.",
@@ -127,7 +126,6 @@ export default function WeUsApp() {
       setShowAd(false); 
       setIsTyping(false); 
       
-      // ★ 미션 텍스트 적용
       const topic = stateRefs.current.selectedTopic;
       const role = data.myRole;
       const missionText = ROLE_MISSIONS[topic]?.[role] || `당신은 [${role}] 역할을 배정받았습니다. 상대방과 대화를 시작해 보세요.`;
@@ -140,6 +138,9 @@ export default function WeUsApp() {
 
     socketRef.current.on('receive_message', (data) => {
       setIsTyping(false); 
+      // ★ 추가: 지저분한 중복 시스템 메시지 필터링
+      if (data.sender === 'System' && data.text.includes('모드가 시작되었습니다')) return;
+      
       setMessages((prev) => [...prev, { sender: data.sender, text: data.text }]);
       lastInteractionTime.current = Date.now();
     });
@@ -470,9 +471,9 @@ export default function WeUsApp() {
         </div>
       )}
 
-      {/* LOBBY 화면 */}
+      {/* LOBBY 화면 - ★ 하단 여백 대폭 증가 (pb-32) */}
       {step === 'lobby' && activeTab === 'lobby' && (
-        <div className="text-center max-w-lg w-full space-y-8 z-10 h-[85vh] flex flex-col justify-center pb-16">
+        <div className="text-center max-w-lg w-full space-y-8 z-10 h-[85vh] flex flex-col justify-center pb-32">
           <div className="space-y-2 mb-4">
             <h1 className="text-4xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-500 drop-shadow-lg">
               WE US.
@@ -538,9 +539,9 @@ export default function WeUsApp() {
         </div>
       )}
 
-      {/* 역할 선택 모달 */}
+      {/* 역할 선택 모달 - ★ 하단 여백 증가 (pb-24) */}
       {step === 'role_select' && currentRoleData && (
-        <div className="text-center max-w-sm w-full z-10 h-[85vh] flex flex-col justify-center">
+        <div className="text-center max-w-sm w-full z-10 h-[85vh] flex flex-col justify-center pb-24">
           <div className="bg-[#080808]/90 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-8 shadow-2xl">
             <h2 className="text-lg font-bold text-white mb-2">역할을 선택하세요</h2>
             <p className="text-xs text-white/50 mb-8 tracking-widest break-keep">
@@ -577,7 +578,7 @@ export default function WeUsApp() {
         </div>
       )}
 
-{step === 'waiting' && (
+      {step === 'waiting' && (
         <div className="text-center space-y-6 z-10">
           <div className="relative w-20 h-20 mx-auto">
             <div className="absolute inset-0 border-2 border-white/20 rounded-full"></div>
@@ -591,7 +592,7 @@ export default function WeUsApp() {
             <button onClick={() => { 
               setStep('lobby'); 
               setIsConnecting(false);
-              socketRef.current?.emit('leave_queue'); // ★ 대기열 삭제 신호 추가
+              socketRef.current?.emit('leave_queue');
             }} className="text-sm text-white/30 hover:text-white/80 underline tracking-widest transition-colors">
               취소
             </button>
@@ -599,6 +600,7 @@ export default function WeUsApp() {
         </div>
       )}
 
+      {/* CHAT 화면 */}
       {step === 'chat' && (
         <div className="w-full max-w-lg h-[85vh] bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative z-10">
           
@@ -675,24 +677,25 @@ export default function WeUsApp() {
           )}
 
           <div className="bg-white/[0.02] p-5 flex justify-between items-center border-b border-white/5">
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1 min-w-0">
               <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
                 <span className="font-semibold text-sm text-white/90 truncate">
                   {isSingleMode ? `AI 싱글: ${selectedTopic}` : `${selectedTopic}`}
                 </span>
-                <div className="flex items-center gap-1">
+                {/* ★ 버튼 줄바꿈 방지 적용 (whitespace-nowrap, shrink-0) */}
+                <div className="flex items-center gap-1 shrink-0">
                   {!isSingleMode && (
-                    <button onClick={() => setIsReportModalOpen(true)} className="bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[10px] px-2.5 py-1 rounded-full transition-colors border border-transparent hover:border-red-500/30 font-bold">🚨 신고</button>
+                    <button onClick={() => setIsReportModalOpen(true)} className="bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[10px] px-2.5 py-1 rounded-full transition-colors border border-transparent hover:border-red-500/30 font-bold whitespace-nowrap shrink-0">🚨 신고</button>
                   )}
-                  <button onClick={leaveRoom} className="bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/80 text-[10px] px-2.5 py-1 rounded-full transition-colors border border-transparent">나가기</button>
+                  <button onClick={leaveRoom} className="bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/80 text-[10px] px-2.5 py-1 rounded-full transition-colors border border-transparent whitespace-nowrap shrink-0">나가기</button>
                 </div>
               </div>
-              <span className="text-xs text-emerald-400 font-bold tracking-wider pt-1">
+              <span className="text-xs text-emerald-400 font-bold tracking-wider pt-1 truncate">
                 내 역할: [{myRole}]
               </span>
             </div>
-            <div className={`px-3 py-1 rounded-full border ${timeLeft < 60 ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-white/5 border-white/10 text-white/80'}`}>
+            <div className={`px-3 py-1 rounded-full border shrink-0 ${timeLeft < 60 ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-white/5 border-white/10 text-white/80'}`}>
               <span className="font-mono text-sm tracking-wider font-medium">{formatTime(timeLeft)}</span>
             </div>
           </div>
@@ -700,7 +703,6 @@ export default function WeUsApp() {
           <div className="flex-1 p-5 overflow-y-auto space-y-4 pb-24 flex flex-col">
             {messages.map((msg, idx) => (
               <div key={idx} className={`flex ${msg.sender === myRole || msg.sender === '나' ? 'justify-end' : msg.sender === 'System' ? 'justify-center' : 'justify-start'}`}>
-                {/* ★ 시스템 메시지(미션) 가독성을 위해 디자인 변경 */}
                 <div className={`max-w-[85%] p-4 rounded-2xl text-[14px] leading-relaxed 
                   ${msg.sender === myRole || msg.sender === '나' ? 'bg-white text-black rounded-tr-sm' : 
                     msg.sender === 'System' ? 'bg-emerald-900/20 text-emerald-100 border border-emerald-500/30 rounded-xl w-full mx-auto text-center font-medium tracking-wide shadow-lg' : 
