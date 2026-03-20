@@ -48,10 +48,11 @@ const activeRooms = {};
 const roomVotes = {};
 
 async function getGoogleAIResponse(systemPrompt, history, maxTokens = 150) {
+  // ★ 수정 포인트 1: 첫 대답 30초 지연 해결을 위해 가장 빠른 flash 모델 최우선 배치
   const modelsToTry = [
-    "gemma-3-12b-it", 
-    "gemma-3-27b-it",
-    "gemma-3-4b-it"
+    "gemini-1.5-flash", 
+    "gemini-2.5-flash",
+    "gemini-1.5-pro"
   ];
 
   const contents = history.map((msg, index) => {
@@ -96,10 +97,10 @@ function filterProfanity(text) {
 
 function getPersonaPrompt(topic, isReport = false, partnerRole = '') {
   if (isReport) {
-    const basePrompt = `당신은 냉철하고 객관적인 대화 심판관입니다. 대화 기록을 분석하여 다음 내용을 매우 구체적으로 작성하세요.
-1. [상황 분석]: 두 사람이 맡은 역할에 따른 대화 태도와 논리 전개 방식 분석.
-2. [최종 판정]: 누구의 논리나 방어/공격이 더 타당했는지 명확한 승패(또는 무승부) 판정과 그 이유.
-3. [핵심 키워드]: 대화의 성격을 보여주는 #해시태그 3개.`;
+    // ★ 수정 포인트 2-1: 리포트 길이를 줄이고 팩트폭력 한줄평과 해시태그만 출력하도록 간소화
+    const basePrompt = `당신은 냉철하고 객관적인 대화 심판관입니다. 대화 기록을 분석하여 다음 딱 2가지만 구체적으로 작성하세요.
+1. [한줄평]: 대화의 승패, 논리적 허점, 혹은 상대방의 태도에 대한 팩트폭력 한줄평 (50자 이내)
+2. [해시태그]: 대화 성격을 보여주는 요약 키워드 #해시태그 3개`;
     const statsInstruction = `\n\n답변 맨 마지막 줄에 다음 형식으로 참여자의 평균 능력치를 평가해 적어주세요: [LOGIC: 0~100사이숫자] [LINGUISTICS: 0~100사이숫자] [EMPATHY: 0~100사이숫자]`;
     
     if (['영어 프리토킹', '가벼운 스몰토크'].includes(topic)) {
@@ -109,7 +110,8 @@ function getPersonaPrompt(topic, isReport = false, partnerRole = '') {
     }
   }
 
-  const baseConstraint = `\n\n[절대 규칙]: 절대 상대방을 비하하거나 모욕적인 도발을 하지 마세요. 예의를 갖추되 역할에 몰입하세요. 반드시 1~2문장 이내(최대 50자 내외)로 자연스럽게 마침표로 끝나는 완성된 문장만 출력하세요. 말이 중간에 끊기면 안 됩니다.`;
+  // ★ 수정 포인트 2-2: "진상손님:" 같이 이름표를 붙여서 도배되는 현상 절대 금지 규칙 추가
+  const baseConstraint = `\n\n[절대 규칙]: 절대 상대방을 비하하거나 모욕적인 도발을 하지 마세요. 예의를 갖추되 역할에 몰입하세요. 대답할 때 당신의 이름표(예: "${partnerRole}:")를 텍스트 맨 앞에 절대 붙이지 마세요. 반드시 1~2문장 이내(최대 50자 내외)로 자연스럽게 마침표로 끝나는 완성된 문장만 출력하세요. 말이 중간에 끊기면 안 됩니다.`;
 
   switch(topic) {
     case '진상손님 방어전':
@@ -187,7 +189,6 @@ io.on('connection', (socket) => {
     tryMatch(topic);
   });
 
-  // ★ 추가: 대기열 강제 이탈 처리 (유령 큐 버그 해결)
   socket.on('leave_queue', () => {
     const topic = socket.queueTopic;
     const role = socket.queueRole;
@@ -233,12 +234,16 @@ io.on('connection', (socket) => {
       socket.to(data.room).emit('receive_message', { sender: socket.userAlias, text: cleanText });
     } 
     else if (roomData.type === 'single') {
-      roomData.history.push({ role: 'user', content: `${socket.userAlias}: ${cleanText}` }); 
+      // 순수 내용만 객체 형태로 저장
+      roomData.history.push({ role: 'user', content: cleanText }); 
       
       const systemPrompt = getPersonaPrompt(roomData.topic, false, socket.aiPartnerRole);
-      const aiReply = await getGoogleAIResponse(systemPrompt, roomData.history.slice(-8), 150); 
+      let aiReply = await getGoogleAIResponse(systemPrompt, roomData.history.slice(-8), 150); 
       
-      roomData.history.push({ role: 'assistant', content: `${socket.aiPartnerRole}: ${aiReply}` }); 
+      // 이름표 강제 삭제 필터 (AI가 혹시라도 프롬프트를 무시하고 이름표를 출력할 경우 대비)
+      aiReply = aiReply.replace(/^.*?:/, '').trim();
+      
+      roomData.history.push({ role: 'assistant', content: aiReply }); 
       socket.emit('receive_message', { sender: socket.aiPartnerRole, text: aiReply });
     }
   });
@@ -355,7 +360,11 @@ setInterval(async () => {
       }
       
       const systemPrompt = getPersonaPrompt(roomData.topic, true);
-      const conversationText = roomData.history.join('\n');
+      
+      // ★ 수정 포인트 3: 싱글 모드의 객체 데이터를 문자열로 정상 변환시켜 [object Object] 에러 완벽 차단
+      const conversationText = roomData.type === 'single'
+        ? roomData.history.map(msg => `${msg.role === 'user' ? '나' : '상대방'}: ${msg.content}`).join('\n')
+        : roomData.history.join('\n');
       
       const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 400); 
       
@@ -378,7 +387,8 @@ setInterval(async () => {
             type: roomData.type,
             topic: roomData.topic, 
             participants: roomData.participants, 
-            fullLog: roomData.history,
+            // ★ 싱글 모드 DB 저장 시 객체 데이터 에러 방지 처리 추가
+            fullLog: roomData.type === 'single' ? roomData.history.map(m => m.content) : roomData.history,
             aiReport: cleanReportText, 
             stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore }
           });
