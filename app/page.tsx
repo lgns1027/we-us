@@ -51,7 +51,6 @@ export default function WeUsApp() {
   
   const [selectedCategory, setSelectedCategory] = useState<string>('daily');
   const [selectedTopic, setSelectedTopic] = useState<string>('가벼운 스몰토크');
-  // ★ 추가: 커스텀 드롭다운 오픈 상태 관리를 위한 변수
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   
   const [myRole, setMyRole] = useState<string>('');
@@ -385,20 +384,20 @@ export default function WeUsApp() {
   }
 
   return (
-    // ★ 1. 하단바 겹침 원천 차단을 위해 전체 구조를 h-[100dvh] flex flex-col 로 설정
+    // ★ 레이아웃 구조 개편: absolute를 제거하고 전체를 flex-col로 묶어 하단바 겹침 방지
     <div className="h-[100dvh] flex flex-col w-full bg-[#050505] text-gray-100 font-sans relative overflow-hidden">
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/10 blur-[120px] rounded-full pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-900/10 blur-[120px] rounded-full pointer-events-none" />
 
-      {/* ★ 2. 메인 콘텐츠 영역 (flex-1 과 overflow-y-auto 할당하여 이 안에서만 스크롤되도록 격리) */}
-      <main className="flex-1 w-full max-w-lg mx-auto flex flex-col relative z-10 px-4 pt-6 pb-[120px] overflow-y-auto scrollbar-hide">
+      {/* ★ 핵심 스크롤 영역: flex-1 적용 및 PC 스크롤바 강제 숨김 처리 */}
+      <main className="flex-1 w-full max-w-lg mx-auto flex flex-col relative z-10 px-4 pt-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         
         {/* RECORD 탭 */}
         {step === 'lobby' && activeTab === 'myRecord' && (
-          <div className="w-full bg-[#080808]/90 backdrop-blur-2xl border border-white/5 rounded-[2rem] p-8 flex flex-col shadow-2xl relative">
-            <div className="flex justify-between items-end mb-8 shrink-0">
+          <div className="w-full bg-[#080808]/90 backdrop-blur-2xl border border-white/5 rounded-[2rem] p-6 flex flex-col shadow-2xl relative mb-6">
+            <div className="flex justify-between items-end mb-6 shrink-0">
               <div>
-                <h2 className="text-sm font-semibold tracking-[0.3em] text-white/50 mb-1">ANALYTICS</h2>
+                <h2 className="text-xs font-semibold tracking-[0.3em] text-white/50 mb-1">ANALYTICS</h2>
                 <p className="text-[10px] text-white/30 tracking-widest truncate max-w-[150px]">{userId}</p>
               </div>
               <div className="text-right flex flex-col items-end gap-2">
@@ -406,69 +405,46 @@ export default function WeUsApp() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 mb-6 shrink-0">
-              <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 flex flex-col justify-between hover:bg-white/[0.04] transition-colors">
-                <span className="text-[10px] text-white/40 tracking-widest uppercase mb-2">누적 지적 자산</span>
-                <span className="text-2xl font-light text-white mb-1">{totalPlayHours}<span className="text-sm text-white/30 ml-1">hrs</span></span>
-                <span className="text-xs text-white/50">총 대화 시간</span>
+            <div className="grid grid-cols-2 gap-2 mb-6 shrink-0">
+              <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-3 flex flex-col justify-between">
+                <span className="text-[10px] text-white/40 tracking-widest uppercase mb-1">누적 자산</span>
+                <span className="text-xl font-light text-white">{totalPlayHours}<span className="text-[10px] text-white/30 ml-1">hrs</span></span>
               </div>
-              <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-4 flex flex-col justify-between hover:bg-white/[0.04] transition-colors">
-                <span className="text-[10px] text-white/40 tracking-widest uppercase mb-2">주요 페르소나</span>
-                <span className="text-sm font-semibold text-emerald-300 mb-1">{personaTitle}</span>
-                <span className="text-[10px] text-white/50 leading-tight">{personaDesc}</span>
+              <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-3 flex flex-col justify-between">
+                <span className="text-[10px] text-white/40 tracking-widest uppercase mb-1">페르소나</span>
+                <span className="text-xs font-semibold text-emerald-300">{personaTitle}</span>
               </div>
             </div>
 
-            <div className="space-y-5 mb-8 shrink-0">
+            <div className="space-y-4 mb-6 shrink-0">
               <div>
-                <div className="flex justify-between text-[11px] font-medium text-white/60 mb-1.5 uppercase tracking-wider">
-                  <span>논리적 압도력 (Logic)</span>
-                  <span>{myReports.length > 0 ? avgLogic : '-'} / 100</span>
-                </div>
-                <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
-                  <div className="h-full bg-blue-500 transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(59,130,246,0.5)]" style={{ width: `${myReports.length > 0 ? avgLogic : 0}%` }}></div>
-                </div>
+                <div className="flex justify-between text-[10px] font-medium text-white/60 mb-1 uppercase tracking-wider"><span>Logic</span><span>{myReports.length > 0 ? avgLogic : '-'} / 100</span></div>
+                <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden"><div className="h-full bg-blue-500 transition-all" style={{ width: `${myReports.length > 0 ? avgLogic : 0}%` }}></div></div>
               </div>
               <div>
-                <div className="flex justify-between text-[11px] font-medium text-white/60 mb-1.5 uppercase tracking-wider">
-                  <span>언어적 정교함 (Linguistics)</span>
-                  <span>{myReports.length > 0 ? avgLinguistics : '-'} / 100</span>
-                </div>
-                <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
-                  <div className="h-full bg-emerald-500 transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(16,185,129,0.5)]" style={{ width: `${myReports.length > 0 ? avgLinguistics : 0}%` }}></div>
-                </div>
+                <div className="flex justify-between text-[10px] font-medium text-white/60 mb-1 uppercase tracking-wider"><span>Linguistics</span><span>{myReports.length > 0 ? avgLinguistics : '-'} / 100</span></div>
+                <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 transition-all" style={{ width: `${myReports.length > 0 ? avgLinguistics : 0}%` }}></div></div>
               </div>
               <div>
-                <div className="flex justify-between text-[11px] font-medium text-white/60 mb-1.5 uppercase tracking-wider">
-                  <span>공감 및 경청 (Empathy)</span>
-                  <span>{myReports.length > 0 ? avgEmpathy : '-'} / 100</span>
-                </div>
-                <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden">
-                  <div className="h-full bg-purple-500 transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(168,85,247,0.5)]" style={{ width: `${myReports.length > 0 ? avgEmpathy : 0}%` }}></div>
-                </div>
+                <div className="flex justify-between text-[10px] font-medium text-white/60 mb-1 uppercase tracking-wider"><span>Empathy</span><span>{myReports.length > 0 ? avgEmpathy : '-'} / 100</span></div>
+                <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden"><div className="h-full bg-purple-500 transition-all" style={{ width: `${myReports.length > 0 ? avgEmpathy : 0}%` }}></div></div>
               </div>
             </div>
 
-            <div className="flex-1 space-y-0 -mx-4 px-4 pb-4">
-              <h3 className="text-[10px] text-white/30 tracking-widest uppercase mb-4 py-2">
-                최근 인사이트 노트
-              </h3>
+            <div className="flex-1 space-y-0 -mx-4 px-4 pb-2">
+              <h3 className="text-[10px] text-white/30 tracking-widest uppercase mb-2 py-1">인사이트 노트</h3>
               {myReports.length === 0 ? (
-                <div className="text-center pt-10">
-                  <p className="text-xs text-white/30 tracking-widest">분석된 데이터가 없습니다.</p>
-                </div>
+                <div className="text-center pt-6"><p className="text-xs text-white/30 tracking-widest">데이터가 없습니다.</p></div>
               ) : (
                 myReports.map((report, idx) => (
-                  <div key={idx} className="border-b border-white/5 py-5 last:border-0 group cursor-pointer">
-                    <div className="flex justify-between items-baseline mb-2">
-                      <span className={`text-[11px] font-bold tracking-widest uppercase ${report.type === 'single' ? 'text-emerald-500/80' : 'text-blue-500/80'}`}>
+                  <div key={idx} className="border-b border-white/5 py-4 last:border-0 group cursor-pointer">
+                    <div className="flex justify-between items-baseline mb-1">
+                      <span className={`text-[10px] font-bold tracking-widest uppercase ${report.type === 'single' ? 'text-emerald-500/80' : 'text-blue-500/80'}`}>
                         {report.type === 'single' ? `TUTORING • ${report.topic || 'AI'}` : `SALON • ${report.topic}`}
                       </span>
-                      <span className="text-[9px] text-white/20 font-mono">
-                        {new Date(report.createdAt).toLocaleDateString()}
-                      </span>
+                      <span className="text-[8px] text-white/20 font-mono">{new Date(report.createdAt).toLocaleDateString()}</span>
                     </div>
-                    <p className="text-xs text-white/70 leading-relaxed whitespace-pre-line group-hover:text-white transition-colors">{report.aiReport}</p>
+                    <p className="text-[11px] text-white/70 leading-relaxed whitespace-pre-line group-hover:text-white transition-colors">{report.aiReport}</p>
                   </div>
                 ))
               )}
@@ -476,14 +452,14 @@ export default function WeUsApp() {
           </div>
         )}
 
-        {/* LOBBY 화면 */}
+        {/* LOBBY 화면 - ★ 전체적 UI 15% 축소 적용 (여백 및 공간 확보) */}
         {step === 'lobby' && activeTab === 'lobby' && (
-          <div className="w-full flex flex-col justify-center space-y-8 flex-1 min-h-[600px]">
-            <div className="text-center space-y-2 mb-2 shrink-0">
-              <h1 className="text-4xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-500 drop-shadow-lg">
+          <div className="w-full flex flex-col justify-center space-y-6 flex-1 min-h-[500px]">
+            <div className="text-center space-y-1 mb-1 shrink-0">
+              <h1 className="text-3xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-500 drop-shadow-lg">
                 WE US.
               </h1>
-              <p className="text-gray-400 font-light tracking-widest text-xs">우리가 되어가는 3분의 시간</p>
+              <p className="text-gray-400 font-light tracking-widest text-[10px]">우리가 되어가는 3분의 시간</p>
             </div>
             
             <div className="grid grid-cols-2 gap-2 shrink-0">
@@ -493,43 +469,43 @@ export default function WeUsApp() {
                   onClick={() => {
                     setSelectedCategory(cat.id);
                     setSelectedTopic(cat.options[0]); 
-                    setIsDropdownOpen(false); // 카테고리 변경 시 드롭다운 닫기
+                    setIsDropdownOpen(false); 
                   }}
-                  className={`p-3.5 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all border ${
+                  className={`p-3 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all border ${
                     selectedCategory === cat.id 
                     ? 'bg-white/10 border-white/30 shadow-[0_0_15px_rgba(255,255,255,0.1)]' 
                     : 'bg-white/[0.02] border-white/5 opacity-50 hover:opacity-100'
                   }`}
                 >
-                  <span className="text-2xl mb-1">{cat.icon}</span>
-                  <span className="text-[11px] font-bold tracking-wider text-white whitespace-nowrap">{cat.title}</span>
+                  <span className="text-xl mb-1">{cat.icon}</span>
+                  <span className="text-[10px] font-bold tracking-wider text-white whitespace-nowrap">{cat.title}</span>
                 </button>
               ))}
             </div>
 
-            <div className="bg-white/[0.03] backdrop-blur-xl p-6 rounded-3xl border border-white/5 shadow-2xl space-y-6 shrink-0">
-              <div className="flex flex-col text-left space-y-3 relative">
-                <label className="text-[12px] text-emerald-400 uppercase tracking-widest font-bold">
+            <div className="bg-white/[0.03] backdrop-blur-xl p-5 rounded-3xl border border-white/5 shadow-2xl space-y-4 shrink-0">
+              <div className="flex flex-col text-left space-y-2 relative">
+                <label className="text-[11px] text-emerald-400 uppercase tracking-widest font-bold">
                   {LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.desc}
                 </label>
                 
-                {/* ★ 3. 커스텀 드롭다운 메뉴 (테마 100% 적용) */}
+                {/* ★ 테마 100% 적용 커스텀 드롭다운 */}
                 <div className="relative">
                   <div 
                     onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                    className="bg-[#0a0a0a] border border-white/10 text-white text-[15px] rounded-xl w-full p-4 flex justify-between items-center cursor-pointer hover:border-white/30 transition-colors"
+                    className="bg-[#0a0a0a] border border-white/10 text-white text-[14px] rounded-xl w-full p-3.5 flex justify-between items-center cursor-pointer hover:border-white/30 transition-colors"
                   >
                     <span>{selectedTopic}</span>
-                    <span className={`transition-transform duration-200 text-white/50 text-xs ${isDropdownOpen ? 'rotate-180' : ''}`}>▼</span>
+                    <span className={`transition-transform duration-200 text-white/50 text-[10px] ${isDropdownOpen ? 'rotate-180' : ''}`}>▼</span>
                   </div>
                   
                   {isDropdownOpen && (
-                    <div className="absolute top-[calc(100%+8px)] left-0 w-full bg-[#0a0a0a] border border-emerald-500/30 rounded-xl overflow-hidden z-50 shadow-[0_0_15px_rgba(16,185,129,0.15)] flex flex-col divide-y divide-white/5">
+                    <div className="absolute top-[calc(100%+6px)] left-0 w-full bg-[#0a0a0a] border border-emerald-500/30 rounded-xl overflow-hidden z-50 shadow-[0_0_15px_rgba(16,185,129,0.15)] flex flex-col divide-y divide-white/5">
                       {currentOptions.map(opt => (
                         <button 
                           key={opt}
                           onClick={() => { setSelectedTopic(opt); setIsDropdownOpen(false); }}
-                          className={`p-4 text-left text-[14px] transition-colors w-full ${
+                          className={`p-3 text-left text-[13px] transition-colors w-full ${
                             selectedTopic === opt ? 'bg-emerald-500/20 text-emerald-300 font-bold' : 'text-white/70 hover:bg-white/5'
                           }`}
                         >
@@ -541,21 +517,21 @@ export default function WeUsApp() {
                 </div>
               </div>
 
-              <div className="space-y-3 pt-2">
+              <div className="space-y-2 pt-1">
                 <button 
                   disabled={isConnecting}
                   onClick={() => handleMatchStart(false)}
-                  className="w-full bg-white text-black font-extrabold tracking-wide py-4.5 rounded-xl hover:bg-gray-200 transition-all shadow-lg flex justify-center items-center gap-2 text-[15px]"
+                  className="w-full bg-white text-black font-extrabold tracking-wide py-3.5 rounded-xl hover:bg-gray-200 transition-all shadow-lg flex justify-center items-center gap-2 text-[14px]"
                 >
-                  {isConnecting && !isSingleMode ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"/> : null}
+                  {isConnecting && !isSingleMode ? <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin"/> : null}
                   익명 매칭 시작하기
                 </button>
                 <button 
                   disabled={isConnecting}
                   onClick={() => handleMatchStart(true)}
-                  className="w-full bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-4.5 rounded-xl border border-white/10 transition-all flex justify-center items-center gap-2 text-[15px]"
+                  className="w-full bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-3.5 rounded-xl border border-white/10 transition-all flex justify-center items-center gap-2 text-[14px]"
                 >
-                  {isConnecting && isSingleMode ? <div className="w-4 h-4 border-2 border-white/50 border-t-transparent rounded-full animate-spin"/> : null}
+                  {isConnecting && isSingleMode ? <div className="w-3 h-3 border-2 border-white/50 border-t-transparent rounded-full animate-spin"/> : null}
                   AI와 먼저 연습하기
                 </button>
               </div>
@@ -566,24 +542,24 @@ export default function WeUsApp() {
         {/* 역할 선택 모달 */}
         {step === 'role_select' && currentRoleData && (
           <div className="text-center w-full flex-1 flex flex-col justify-center">
-            <div className="bg-[#080808]/90 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-8 shadow-2xl shrink-0">
+            <div className="bg-[#080808]/90 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-6 shadow-2xl shrink-0">
               <h2 className="text-lg font-bold text-white mb-2">역할을 선택하세요</h2>
-              <p className="text-xs text-white/50 mb-8 tracking-widest break-keep">
+              <p className="text-[11px] text-white/50 mb-6 tracking-widest break-keep">
                 [{selectedTopic}] 1:1 대결을 위한 역할을 고릅니다.
               </p>
               
               <div className="space-y-3 mb-6">
-                <button onClick={() => confirmRoleAndJoin('A')} className="w-full bg-white/5 hover:bg-white/10 border border-emerald-500/30 py-4 rounded-xl font-bold text-emerald-400 transition flex justify-between px-6">
-                  <span>{currentRoleData.roleA}</span>
+                <button onClick={() => confirmRoleAndJoin('A')} className="w-full bg-white/5 hover:bg-white/10 border border-emerald-500/30 py-3.5 rounded-xl font-bold text-emerald-400 transition flex justify-between px-5">
+                  <span className="text-[14px]">{currentRoleData.roleA}</span>
                   <span className="text-[10px] font-normal text-white/40 flex items-center">선택 ➔</span>
                 </button>
-                <button onClick={() => confirmRoleAndJoin('B')} className="w-full bg-white/5 hover:bg-white/10 border border-blue-500/30 py-4 rounded-xl font-bold text-blue-400 transition flex justify-between px-6">
-                  <span>{currentRoleData.roleB}</span>
+                <button onClick={() => confirmRoleAndJoin('B')} className="w-full bg-white/5 hover:bg-white/10 border border-blue-500/30 py-3.5 rounded-xl font-bold text-blue-400 transition flex justify-between px-5">
+                  <span className="text-[14px]">{currentRoleData.roleB}</span>
                   <span className="text-[10px] font-normal text-white/40 flex items-center">선택 ➔</span>
                 </button>
                 {!isSingleMode && (
-                  <button onClick={() => confirmRoleAndJoin('random')} className="w-full bg-white/5 hover:bg-white/10 border border-white/10 py-4 rounded-xl font-bold text-white/80 transition flex justify-between px-6">
-                    <span>상관없음 (랜덤)</span>
+                  <button onClick={() => confirmRoleAndJoin('random')} className="w-full bg-white/5 hover:bg-white/10 border border-white/10 py-3.5 rounded-xl font-bold text-white/80 transition flex justify-between px-5">
+                    <span className="text-[14px]">상관없음 (랜덤)</span>
                     <span className="text-[10px] font-normal text-white/40 flex items-center">빠른매칭 ➔</span>
                   </button>
                 )}
@@ -598,20 +574,20 @@ export default function WeUsApp() {
         {/* 대기중 화면 */}
         {step === 'waiting' && (
           <div className="text-center space-y-6 flex-1 flex flex-col justify-center">
-            <div className="relative w-20 h-20 mx-auto">
+            <div className="relative w-16 h-16 mx-auto">
               <div className="absolute inset-0 border-2 border-white/20 rounded-full"></div>
               <div className="absolute inset-0 border-2 border-white rounded-full border-t-transparent animate-spin"></div>
             </div>
-            <p className="text-xl font-light text-white tracking-wider">상대방을 찾는 중...</p>
+            <p className="text-lg font-light text-white tracking-wider">상대방을 찾는 중...</p>
             <div className="inline-block px-4 py-1.5 rounded-full border border-white/10 bg-white/5 backdrop-blur-sm">
-              <p className="text-sm text-white/60">{selectedTopic}</p>
+              <p className="text-xs text-white/60">{selectedTopic}</p>
             </div>
-            <div className="pt-8">
+            <div className="pt-6">
               <button onClick={() => { 
                 setStep('lobby'); 
                 setIsConnecting(false);
                 socketRef.current?.emit('leave_queue');
-              }} className="text-sm text-white/30 hover:text-white/80 underline tracking-widest transition-colors">
+              }} className="text-xs text-white/30 hover:text-white/80 underline tracking-widest transition-colors">
                 취소
               </button>
             </div>
@@ -620,8 +596,7 @@ export default function WeUsApp() {
 
         {/* CHAT 화면 */}
         {step === 'chat' && (
-          <div className="w-full flex-1 bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative">
-            
+          <div className="w-full flex-1 mb-4 bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative">
             {isReportModalOpen && (
               <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-[70] p-6 backdrop-blur-sm">
                 <div className="w-full max-w-sm bg-[#0a0a0a] border border-white/10 rounded-[2rem] p-8 shadow-2xl flex flex-col">
@@ -669,62 +644,62 @@ export default function WeUsApp() {
 
             {reportData && !showAd && (
               <div className="absolute inset-0 bg-[#050505]/95 flex flex-col items-center justify-center z-50 p-6 backdrop-blur-xl">
-                <div ref={reportCardRef} className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-8 w-full max-w-sm shadow-2xl flex flex-col">
+                <div ref={reportCardRef} className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-6 w-full max-w-sm shadow-2xl flex flex-col">
                   <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4">
-                     <h2 className="text-xs font-bold tracking-[0.3em] text-white/50">WE US REPORT</h2>
+                     <h2 className="text-[10px] font-bold tracking-[0.3em] text-white/50">WE US REPORT</h2>
                      <span className="text-[10px] text-emerald-400 border border-emerald-400/30 px-2 py-1 rounded-full">{tier}</span>
                   </div>
-                  <h2 className="text-xl font-light tracking-widest text-center mb-6 text-white">
+                  <h2 className="text-lg font-light tracking-widest text-center mb-6 text-white">
                     {isSingleMode ? 'PERSONAL TUTORING' : 'CHEMISTRY ANALYSIS'}
                   </h2>
-                  <div className="space-y-4 text-sm text-gray-300 whitespace-pre-line leading-relaxed flex-1 bg-white/[0.02] p-6 rounded-2xl border border-white/5">
+                  <div className="space-y-4 text-xs text-gray-300 whitespace-pre-line leading-relaxed flex-1 bg-white/[0.02] p-5 rounded-2xl border border-white/5">
                     {reportData}
                   </div>
-                  <div className="mt-6 text-center text-[10px] text-white/30 font-mono">we-us.online</div>
+                  <div className="mt-4 text-center text-[10px] text-white/30 font-mono">we-us.online</div>
                 </div>
 
-                <div className="w-full max-w-sm mt-6 flex gap-3 px-2">
-                  <button onClick={handleShareCard} disabled={isCapturing} className="flex-1 bg-white text-black font-bold tracking-wide py-3.5 rounded-xl hover:bg-gray-200 transition flex justify-center items-center gap-2">
+                <div className="w-full max-w-sm mt-4 flex gap-3 px-2">
+                  <button onClick={handleShareCard} disabled={isCapturing} className="flex-1 bg-white text-black font-bold tracking-wide py-3 rounded-xl hover:bg-gray-200 transition flex justify-center items-center gap-2 text-sm">
                     {isCapturing ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"/> : '📸 인스타용 캡처'}
                   </button>
-                  <button onClick={() => { setReportData(null); setStep('lobby'); }} className="px-6 bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-3.5 rounded-xl border border-white/10 transition">
+                  <button onClick={() => { setReportData(null); setStep('lobby'); }} className="px-6 bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-3 rounded-xl border border-white/10 transition text-sm">
                     로비
                   </button>
                 </div>
               </div>
             )}
 
-            <div className="bg-white/[0.02] p-5 flex justify-between items-center border-b border-white/5 shrink-0">
+            <div className="bg-white/[0.02] p-4 flex justify-between items-center border-b border-white/5 shrink-0">
               <div className="flex flex-col gap-1 min-w-0">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                  <span className="font-semibold text-sm text-white/90 truncate">
+                  <span className="font-semibold text-xs text-white/90 truncate">
                     {isSingleMode ? `AI 싱글: ${selectedTopic}` : `${selectedTopic}`}
                   </span>
-                  <div className="flex items-center gap-1 shrink-0">
+                  <div className="flex items-center gap-1 shrink-0 ml-1">
                     {!isSingleMode && (
-                      <button onClick={() => setIsReportModalOpen(true)} className="bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[10px] px-2.5 py-1 rounded-full transition-colors border border-transparent hover:border-red-500/30 font-bold whitespace-nowrap shrink-0">🚨 신고</button>
+                      <button onClick={() => setIsReportModalOpen(true)} className="bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[10px] px-2 py-0.5 rounded-full transition-colors border border-transparent hover:border-red-500/30 font-bold whitespace-nowrap shrink-0">🚨 신고</button>
                     )}
-                    <button onClick={leaveRoom} className="bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/80 text-[10px] px-2.5 py-1 rounded-full transition-colors border border-transparent whitespace-nowrap shrink-0">나가기</button>
+                    <button onClick={leaveRoom} className="bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/80 text-[10px] px-2 py-0.5 rounded-full transition-colors border border-transparent whitespace-nowrap shrink-0">나가기</button>
                   </div>
                 </div>
-                <span className="text-xs text-emerald-400 font-bold tracking-wider pt-1 truncate">
+                <span className="text-[11px] text-emerald-400 font-bold tracking-wider pt-0.5 truncate">
                   내 역할: [{myRole}]
                 </span>
               </div>
-              <div className={`px-3 py-1 rounded-full border shrink-0 ${timeLeft < 60 ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-white/5 border-white/10 text-white/80'}`}>
-                <span className="font-mono text-sm tracking-wider font-medium">{formatTime(timeLeft)}</span>
+              <div className={`px-2.5 py-1 rounded-full border shrink-0 ${timeLeft < 60 ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-white/5 border-white/10 text-white/80'}`}>
+                <span className="font-mono text-xs tracking-wider font-medium">{formatTime(timeLeft)}</span>
               </div>
             </div>
 
-            <div className="flex-1 p-5 overflow-y-auto space-y-4 flex flex-col">
+            <div className="flex-1 p-4 overflow-y-auto space-y-4 flex flex-col [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
               {messages.map((msg, idx) => (
                 <div key={idx} className={`flex ${msg.sender === myRole || msg.sender === '나' ? 'justify-end' : msg.sender === 'System' ? 'justify-center' : 'justify-start'}`}>
-                  <div className={`max-w-[85%] p-4 rounded-2xl text-[14px] leading-relaxed 
+                  <div className={`max-w-[85%] p-3.5 rounded-2xl text-[13px] leading-relaxed 
                     ${msg.sender === myRole || msg.sender === '나' ? 'bg-white text-black rounded-tr-sm' : 
                       msg.sender === 'System' ? 'bg-emerald-900/20 text-emerald-100 border border-emerald-500/30 rounded-xl w-full mx-auto text-center font-medium tracking-wide shadow-lg' : 
                       'bg-white/10 text-white rounded-tl-sm'}`}>
-                    {msg.sender !== 'System' && <span className={`text-[11px] block mb-1 font-bold ${msg.sender === myRole || msg.sender === '나' ? 'text-gray-500' : 'text-white/40'}`}>{msg.sender}</span>}
+                    {msg.sender !== 'System' && <span className={`text-[10px] block mb-1 font-bold ${msg.sender === myRole || msg.sender === '나' ? 'text-gray-500' : 'text-white/40'}`}>{msg.sender}</span>}
                     <span className="whitespace-pre-line">{msg.text}</span>
                   </div>
                 </div>
@@ -732,7 +707,7 @@ export default function WeUsApp() {
               
               {isTyping && (
                 <div className="flex justify-start animate-fade-in-up">
-                  <div className="max-w-[80%] p-3.5 rounded-2xl bg-white/5 border border-white/10 text-white/50 rounded-tl-sm flex items-center gap-1">
+                  <div className="max-w-[80%] p-3 rounded-2xl bg-white/5 border border-white/10 text-white/50 rounded-tl-sm flex items-center gap-1">
                     <div className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
                     <div className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
                     <div className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
@@ -742,27 +717,27 @@ export default function WeUsApp() {
             </div>
 
             {timeLeft <= 60 && !isSingleMode && !isAnalyzing && !reportData && extensionCount < 2 && !showAd && (
-              <div className="absolute bottom-[80px] left-0 w-full p-3 bg-gradient-to-t from-[#0a0a0a] to-transparent flex flex-col items-center justify-center">
-                <button onClick={() => { setHasVoted(true); socketRef.current?.emit('vote_extend', { room }); }} disabled={hasVoted} className={`px-6 py-2.5 rounded-full font-bold text-sm shadow-lg transition-all border ${hasVoted ? 'bg-white/5 border-white/10 text-white/30 cursor-not-allowed' : 'bg-emerald-500/20 border-emerald-500/50 hover:bg-emerald-500/30 text-emerald-300'}`}>
+              <div className="absolute bottom-[70px] left-0 w-full p-2 bg-gradient-to-t from-[#0a0a0a] to-transparent flex flex-col items-center justify-center">
+                <button onClick={() => { setHasVoted(true); socketRef.current?.emit('vote_extend', { room }); }} disabled={hasVoted} className={`px-5 py-2 rounded-full font-bold text-xs shadow-lg transition-all border ${hasVoted ? 'bg-white/5 border-white/10 text-white/30 cursor-not-allowed' : 'bg-emerald-500/20 border-emerald-500/50 hover:bg-emerald-500/30 text-emerald-300'}`}>
                   {hasVoted ? `동의 대기중 ${voteStatus}` : `+ 2분 연장하기 (${extensionCount}/2)`}
                 </button>
               </div>
             )}
 
-            <form onSubmit={sendMessage} className="p-4 bg-[#050505] border-t border-white/5 flex gap-2 z-10 relative shrink-0">
-              <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} disabled={isAnalyzing || !!reportData || showAd} placeholder="메시지 입력..." className="flex-1 bg-white/5 text-white px-5 py-3.5 rounded-full outline-none focus:bg-white/10 transition-colors disabled:opacity-50 text-sm placeholder:text-white/20 border border-transparent focus:border-white/10"/>
-              <button type="submit" disabled={isAnalyzing || !!reportData || showAd || !inputText.trim()} className="bg-white text-black w-12 h-12 rounded-full flex items-center justify-center font-bold hover:bg-gray-200 disabled:opacity-50 transition-colors shrink-0">↑</button>
+            <form onSubmit={sendMessage} className="p-3 bg-[#050505] border-t border-white/5 flex gap-2 z-10 relative shrink-0">
+              <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} disabled={isAnalyzing || !!reportData || showAd} placeholder="메시지 입력..." className="flex-1 bg-white/5 text-white px-4 py-3 rounded-full outline-none focus:bg-white/10 transition-colors disabled:opacity-50 text-sm placeholder:text-white/20 border border-transparent focus:border-white/10"/>
+              <button type="submit" disabled={isAnalyzing || !!reportData || showAd || !inputText.trim()} className="bg-white text-black w-10 h-10 rounded-full flex items-center justify-center font-bold hover:bg-gray-200 disabled:opacity-50 transition-colors shrink-0">↑</button>
             </form>
           </div>
         )}
       </main>
 
-      {/* ★ 4. 하단 네비게이션 고정 영역 (절대 침범 불가) */}
+      {/* ★ 4. 하단 네비게이션 고정 영역 (shrink-0으로 화면 하단에 절대 확보) */}
       {step === 'lobby' && (
-        <nav className="absolute bottom-0 left-0 w-full pb-8 pt-4 flex justify-center z-20 bg-gradient-to-t from-[#050505] to-transparent pointer-events-none">
-          <div className="flex items-center bg-black/80 backdrop-blur-xl border border-white/10 rounded-full p-1.5 shadow-[0_0_20px_rgba(0,0,0,0.5)] pointer-events-auto">
-            <button onClick={() => setActiveTab('lobby')} className={`px-8 py-3.5 rounded-full text-[13px] font-bold tracking-widest transition-all ${activeTab === 'lobby' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>LOBBY</button>
-            <button onClick={() => setActiveTab('myRecord')} className={`px-8 py-3.5 rounded-full text-[13px] font-bold tracking-widest transition-all ${activeTab === 'myRecord' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>RECORD</button>
+        <nav className="shrink-0 w-full max-w-lg mx-auto pb-6 pt-2 flex justify-center z-20 bg-gradient-to-t from-[#050505] to-transparent">
+          <div className="flex items-center bg-black/80 backdrop-blur-xl border border-white/10 rounded-full p-1.5 shadow-[0_0_20px_rgba(0,0,0,0.5)]">
+            <button onClick={() => setActiveTab('lobby')} className={`px-8 py-3 rounded-full text-[12px] font-bold tracking-widest transition-all ${activeTab === 'lobby' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>LOBBY</button>
+            <button onClick={() => setActiveTab('myRecord')} className={`px-8 py-3 rounded-full text-[12px] font-bold tracking-widest transition-all ${activeTab === 'myRecord' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>RECORD</button>
           </div>
         </nav>
       )}
