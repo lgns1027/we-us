@@ -384,15 +384,14 @@ export default function WeUsApp() {
   }
 
   return (
-    // ★ 레이아웃 구조 개편: absolute를 제거하고 전체를 flex-col로 묶어 하단바 겹침 방지
+    // h-[100dvh] flex-col 로 화면 꽉 채우기
     <div className="h-[100dvh] flex flex-col w-full bg-[#050505] text-gray-100 font-sans relative overflow-hidden">
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/10 blur-[120px] rounded-full pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-900/10 blur-[120px] rounded-full pointer-events-none" />
 
-      {/* ★ 핵심 스크롤 영역: flex-1 적용 및 PC 스크롤바 강제 숨김 처리 */}
+      {/* 내부 스크롤 영역 (PC 스크롤바 완전 숨김 처리) */}
       <main className="flex-1 w-full max-w-lg mx-auto flex flex-col relative z-10 px-4 pt-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         
-        {/* RECORD 탭 */}
         {step === 'lobby' && activeTab === 'myRecord' && (
           <div className="w-full bg-[#080808]/90 backdrop-blur-2xl border border-white/5 rounded-[2rem] p-6 flex flex-col shadow-2xl relative mb-6">
             <div className="flex justify-between items-end mb-6 shrink-0">
@@ -452,7 +451,6 @@ export default function WeUsApp() {
           </div>
         )}
 
-        {/* LOBBY 화면 - ★ 전체적 UI 15% 축소 적용 (여백 및 공간 확보) */}
         {step === 'lobby' && activeTab === 'lobby' && (
           <div className="w-full flex flex-col justify-center space-y-6 flex-1 min-h-[500px]">
             <div className="text-center space-y-1 mb-1 shrink-0">
@@ -489,7 +487,6 @@ export default function WeUsApp() {
                   {LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.desc}
                 </label>
                 
-                {/* ★ 테마 100% 적용 커스텀 드롭다운 */}
                 <div className="relative">
                   <div 
                     onClick={() => setIsDropdownOpen(!isDropdownOpen)}
@@ -539,7 +536,6 @@ export default function WeUsApp() {
           </div>
         )}
 
-        {/* 역할 선택 모달 */}
         {step === 'role_select' && currentRoleData && (
           <div className="text-center w-full flex-1 flex flex-col justify-center">
             <div className="bg-[#080808]/90 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-6 shadow-2xl shrink-0">
@@ -571,7 +567,6 @@ export default function WeUsApp() {
           </div>
         )}
 
-        {/* 대기중 화면 */}
         {step === 'waiting' && (
           <div className="text-center space-y-6 flex-1 flex flex-col justify-center">
             <div className="relative w-16 h-16 mx-auto">
@@ -594,7 +589,6 @@ export default function WeUsApp() {
           </div>
         )}
 
-        {/* CHAT 화면 */}
         {step === 'chat' && (
           <div className="w-full flex-1 mb-4 bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative">
             {isReportModalOpen && (
@@ -732,9 +726,9 @@ export default function WeUsApp() {
         )}
       </main>
 
-      {/* ★ 4. 하단 네비게이션 고정 영역 (shrink-0으로 화면 하단에 절대 확보) */}
+      {/* ★ 하단 네비게이션 고정 영역 (절대 침범 불가 물리적 블록) */}
       {step === 'lobby' && (
-        <nav className="shrink-0 w-full max-w-lg mx-auto pb-6 pt-2 flex justify-center z-20 bg-gradient-to-t from-[#050505] to-transparent">
+        <nav className="w-full max-w-lg mx-auto pb-6 pt-2 flex justify-center z-20 bg-gradient-to-t from-[#050505] to-transparent shrink-0">
           <div className="flex items-center bg-black/80 backdrop-blur-xl border border-white/10 rounded-full p-1.5 shadow-[0_0_20px_rgba(0,0,0,0.5)]">
             <button onClick={() => setActiveTab('lobby')} className={`px-8 py-3 rounded-full text-[12px] font-bold tracking-widest transition-all ${activeTab === 'lobby' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>LOBBY</button>
             <button onClick={() => setActiveTab('myRecord')} className={`px-8 py-3 rounded-full text-[12px] font-bold tracking-widest transition-all ${activeTab === 'myRecord' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>RECORD</button>
