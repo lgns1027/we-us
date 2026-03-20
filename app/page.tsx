@@ -2,16 +2,13 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-import html2canvas from 'html2canvas'; 
+
+import LobbyView from './components/LobbyView';
+import RecordView from './components/RecordView';
+import ChatRoom from './components/ChatRoom';
+import ProfileView from './components/ProfileView';
 
 const SERVER_URL = 'https://we-us-backend.onrender.com';
-
-const LOBBY_CATEGORIES = [
-  { id: 'daily', icon: '☕', title: '일상 라운지', desc: '부담 없는 스몰토크와 편안한 일상 대화', options: ['가벼운 스몰토크', '오늘 하루의 하이라이트', '요즘 꽂힌 취미 이야기'] },
-  { id: 'lang', icon: '🌍', title: '어학 튜터링', desc: 'AI 튜터 및 글로벌 유저와 실전 회화', options: ['영어', '일본어', '프랑스어', '한국어(외국인용)'] },
-  { id: 'deep', icon: '🍷', title: '딥 토크 살롱', desc: '일상에서 나누기 힘든 철학적, 지적 대화', options: ['최악의 이불킥 경험', '자본주의 생존기', '100억 받기 VS 무병장수'] },
-  { id: 'roleplay', icon: '🎭', title: '도파민 롤플레잉', desc: '스트레스 해소용 익명 상황극', options: ['진상손님 방어전', '압박 면접'] }
-];
 
 const ROLE_MAP: Record<string, { roleA: string, roleB: string }> = {
   '100억 받기 VS 무병장수': { roleA: '100억 선택', roleB: '무병장수 선택' },
@@ -22,29 +19,19 @@ const ROLE_MAP: Record<string, { roleA: string, roleB: string }> = {
 };
 
 const ROLE_MISSIONS: Record<string, Record<string, string>> = {
-  '압박 면접': {
-    '지원자': "당신은 이력서에 '해외 영업 3년'이라 적었지만, 사실 워킹홀리데이 3개월이 전부입니다. 면접관의 압박을 3분간 어떻게든 방어하세요.",
-    '면접관': "눈앞의 지원자는 해외 영업 경력이 3년이라는데, 왠지 철저한 거짓말 같습니다. 3분 동안 집요하게 꼬리 질문을 던져 멘탈을 박살 내세요."
-  },
-  '진상손님 방어전': {
-    '알바생': "당신은 카페 알바생입니다. 손님이 다 마신 커피 얼음을 가져와서 '얼음이 너무 빨리 녹았다'며 새 음료로 환불을 요구합니다. 절대 환불해주지 마세요.",
-    '진상손님': "당신은 커피를 다 마셨지만 돈이 아깝습니다. 얼음이 너무 빨리 녹았다는 억지 논리를 펴서 어떻게든 알바생에게 전액 환불을 받아내세요."
-  },
-  '100억 받기 VS 무병장수': {
-    '100억 선택': "당신은 100억을 선택했습니다. 무병장수를 고른 상대에게 '돈 없는 장수는 저주'라는 논리로 팩트폭행을 가하세요.",
-    '무병장수 선택': "당신은 무병장수를 선택했습니다. 100억을 고른 상대에게 '건강을 잃으면 돈은 휴지조각'이라는 논리로 상대를 압도하세요."
-  }
+  '압박 면접': { '지원자': "이력서에 '해외 영업 3년'이라 적었지만, 사실 워홀 3개월이 전부입니다. 3분간 방어하세요.", '면접관': "해외 영업 3년이라는데 철저한 거짓말 같습니다. 집요하게 꼬리 질문을 던지세요." },
+  '진상손님 방어전': { '알바생': "카페 알바생입니다. 손님이 '얼음이 녹았다'며 환불을 요구합니다. 방어하세요.", '진상손님': "얼음이 너무 빨리 녹았다는 억지 논리를 펴서 전액 환불을 받아내세요." },
+  '100억 받기 VS 무병장수': { '100억 선택': "100억을 고른 당신. 상대에게 '돈 없는 장수는 저주'라고 팩트폭행하세요.", '무병장수 선택': "상대에게 '건강을 잃으면 돈은 휴지조각'이라는 논리로 상대를 압도하세요." }
 };
 
 export default function WeUsApp() {
-  const [activeTab, setActiveTab] = useState<'lobby' | 'myRecord'>('lobby');
+  const [activeTab, setActiveTab] = useState<'lobby' | 'myRecord' | 'profile'>('lobby'); // ★ PROFILE 탭 추가
   const [userId, setUserId] = useState<string>('');
   const [myReports, setMyReports] = useState<any[]>([]); 
 
   const [step, setStep] = useState<'lobby' | 'role_select' | 'waiting' | 'chat'>('lobby');
   const [timeLeft, setTimeLeft] = useState(180); 
   const [messages, setMessages] = useState<{ sender: string; text: string }[]>([]);
-  const [inputText, setInputText] = useState('');
   const [room, setRoom] = useState('');
   const [isHost, setIsHost] = useState(false); 
   const [isSingleMode, setIsSingleMode] = useState(false); 
@@ -57,39 +44,24 @@ export default function WeUsApp() {
   const [partnerRole, setPartnerRole] = useState<string>('');
 
   const [hasVoted, setHasVoted] = useState(false);
-  const [partnerVoted, setPartnerVoted] = useState(false);
-  const [extensionCount, setExtensionCount] = useState(0);
-  const [participantCount, setParticipantCount] = useState(2);
   const [voteStatus, setVoteStatus] = useState(''); 
+  const [extensionCount, setExtensionCount] = useState(0);
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [reportData, setReportData] = useState<string | null>(null);
   
-  const reportCardRef = useRef<HTMLDivElement>(null); 
-  const [isCapturing, setIsCapturing] = useState(false);
-
   const [showAd, setShowAd] = useState(false);
   const [adCountdown, setAdCountdown] = useState(3);
-
   const [isConnecting, setIsConnecting] = useState(false); 
   const [isTyping, setIsTyping] = useState(false); 
-
-  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
-  const [reportReason, setReportReason] = useState('');
 
   const socketRef = useRef<Socket | null>(null);
   const lastInteractionTime = useRef<number>(Date.now());
   const messagesRef = useRef(messages);
-  
   const stateRefs = useRef({ selectedTopic, isAnalyzing, reportData, showAd });
 
-  useEffect(() => {
-    stateRefs.current = { selectedTopic, isAnalyzing, reportData, showAd };
-  }, [selectedTopic, isAnalyzing, reportData, showAd]);
-
-  useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
+  useEffect(() => { stateRefs.current = { selectedTopic, isAnalyzing, reportData, showAd }; }, [selectedTopic, isAnalyzing, reportData, showAd]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   useEffect(() => {
     let storedId = localStorage.getItem('weus_user_id');
@@ -102,37 +74,18 @@ export default function WeUsApp() {
 
   useEffect(() => {
     if (!userId) return; 
-
     socketRef.current = io(SERVER_URL);
 
-    socketRef.current.on('receive_my_records', (records) => {
-      setMyReports(records);
-    });
+    socketRef.current.on('receive_my_records', (records) => { setMyReports(records); });
 
     socketRef.current.on('matched', (data) => {
-      setIsConnecting(false); 
-      setRoom(data.roomName || data.roomId);
-      setParticipantCount(data.participantCount || 2); 
-      setMyRole(data.myRole || '나');
-      setPartnerRole(data.partner || '상대방');
+      setIsConnecting(false); setRoom(data.roomName || data.roomId);
+      setMyRole(data.myRole || '나'); setPartnerRole(data.partner || '상대방');
+      setStep('chat'); setTimeLeft(180); setHasVoted(false); setVoteStatus(''); setExtensionCount(0); 
+      setIsAnalyzing(false); setReportData(null); setShowAd(false); setIsTyping(false); 
       
-      setStep('chat');
-      setTimeLeft(180); 
-      setHasVoted(false);
-      setPartnerVoted(false);
-      setVoteStatus('');
-      setExtensionCount(0); 
-      setIsAnalyzing(false);
-      setReportData(null);
-      setShowAd(false); 
-      setIsTyping(false); 
-      
-      const topic = stateRefs.current.selectedTopic;
-      const role = data.myRole;
-      const missionText = ROLE_MISSIONS[topic]?.[role] || `당신은 [${role}] 역할을 배정받았습니다. 상대방과 대화를 시작해 보세요.`;
-      
+      const missionText = ROLE_MISSIONS[stateRefs.current.selectedTopic]?.[data.myRole] || `당신은 [${data.myRole}] 역할을 배정받았습니다. 대화를 시작해 보세요.`;
       setMessages([{ sender: 'System', text: `🎯 [미션 하달]\n${missionText}` }]);
-      
       lastInteractionTime.current = Date.now();
       if (socketRef.current?.id === data.hostId) setIsHost(true);
     });
@@ -140,56 +93,37 @@ export default function WeUsApp() {
     socketRef.current.on('receive_message', (data) => {
       setIsTyping(false); 
       if (data.sender === 'System' && data.text.includes('모드가 시작되었습니다')) return;
-      
       setMessages((prev) => [...prev, { sender: data.sender, text: data.text }]);
       lastInteractionTime.current = Date.now();
     });
 
     socketRef.current.on('partner_left', () => {
-      const { isAnalyzing, reportData, showAd } = stateRefs.current;
-      if (!isAnalyzing && !reportData && !showAd) {
-        alert("상대방이 나가 대화가 종료되었습니다.");
-        setStep('lobby');
+      if (!stateRefs.current.isAnalyzing && !stateRefs.current.reportData && !stateRefs.current.showAd) {
+        alert("상대방이 나가 대화가 종료되었습니다."); setStep('lobby');
       }
     });
 
     socketRef.current.on('partner_wants_extension', (data) => {
-      setPartnerVoted(true);
       setVoteStatus(`(${data.currentVotes}/${data.total}명 동의)`);
-      if(data.currentVotes === 1) {
-          setMessages((prev) => [...prev, { sender: 'System', text: '누군가 대화 시간 연장을 원합니다! 버튼을 눌러 수락해 주세요.' }]);
-      }
+      if(data.currentVotes === 1) setMessages((prev) => [...prev, { sender: 'System', text: '누군가 대화 시간 연장을 원합니다! 수락해 주세요.' }]);
     });
 
     socketRef.current.on('time_extended', (data) => {
-      setTimeLeft((prev) => prev + data.addedTime);
-      setHasVoted(false); 
-      setPartnerVoted(false);
-      setVoteStatus('');
-      setExtensionCount(data.currentExtensions);
-      setMessages((prev) => [...prev, { 
-        sender: 'System', 
-        text: `🎉 전원 동의로 대화 시간이 2분 연장되었습니다! (남은 연장 기회: ${2 - data.currentExtensions}번)` 
-      }]);
+      setTimeLeft((prev) => prev + data.addedTime); setHasVoted(false); setVoteStatus(''); setExtensionCount(data.currentExtensions);
+      setMessages((prev) => [...prev, { sender: 'System', text: `🎉 2분 연장되었습니다! (남은 기회: ${2 - data.currentExtensions}번)` }]);
     });
 
     socketRef.current.on('receive_report', (data) => {
       setIsAnalyzing(false);
-      if (data.error) {
-        setReportData("대화 내용이 너무 짧거나 시스템 오류로 리포트를 발급할 수 없습니다.");
-      } else {
-        setReportData(data.reportText);
-        if (userId) socketRef.current?.emit('request_my_records', userId);
-      }
+      if (data.error) setReportData("오류로 리포트를 발급할 수 없습니다.");
+      else { setReportData(data.reportText); if (userId) socketRef.current?.emit('request_my_records', userId); }
     });
 
     return () => { socketRef.current?.disconnect(); };
   }, [userId]); 
 
   useEffect(() => {
-    if (activeTab === 'myRecord' && userId && socketRef.current) {
-      socketRef.current.emit('request_my_records', userId);
-    }
+    if (activeTab === 'myRecord' && userId) socketRef.current?.emit('request_my_records', userId);
   }, [activeTab, userId]);
 
   useEffect(() => {
@@ -197,12 +131,8 @@ export default function WeUsApp() {
     const timer = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
-          clearInterval(timer);
-          setIsAnalyzing(true);
-          setShowAd(true);        
-          setAdCountdown(3);      
-          socketRef.current?.emit('request_chemistry_report', { room, userId }); 
-          return 0;
+          clearInterval(timer); setIsAnalyzing(true); setShowAd(true); setAdCountdown(3);      
+          socketRef.current?.emit('request_chemistry_report', { room, userId }); return 0;
         }
         return prev - 1;
       });
@@ -212,17 +142,14 @@ export default function WeUsApp() {
 
   useEffect(() => {
     if (!showAd || adCountdown <= 0) return;
-    const adTimer = setInterval(() => {
-      setAdCountdown(prev => prev - 1);
-    }, 1000);
+    const adTimer = setInterval(() => setAdCountdown(p => p - 1), 1000);
     return () => clearInterval(adTimer);
   }, [showAd, adCountdown]);
 
   useEffect(() => {
     if (step !== 'chat' || isSingleMode) return; 
     const silenceChecker = setInterval(() => {
-      const now = Date.now();
-      if (now - lastInteractionTime.current > 10000 && isHost) {
+      if (Date.now() - lastInteractionTime.current > 10000 && isHost) {
         socketRef.current?.emit('request_ai_help', { room, history: messagesRef.current });
         lastInteractionTime.current = Date.now(); 
       }
@@ -230,508 +157,107 @@ export default function WeUsApp() {
     return () => clearInterval(silenceChecker);
   }, [step, room, isHost, isSingleMode]);
 
-  const sendMessage = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputText.trim() || !room) return;
-    
-    setMessages((prev) => [...prev, { sender: myRole || '나', text: inputText }]);
-    socketRef.current?.emit('send_message', { room: room, roomId: room, text: inputText, partner: partnerRole });
-    setInputText('');
-    lastInteractionTime.current = Date.now();
-    setIsTyping(true); 
-  };
-
-  const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
-    const s = (seconds % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
-  };
-
-  const leaveRoom = () => {
-    if (confirm("정말 대화방에서 나가시겠습니까?")) {
-      socketRef.current?.emit('leave_room', { room });
-      setStep('lobby');
-      setIsTyping(false);
-      setIsConnecting(false);
-      setMyRole('');
-      setPartnerRole('');
-    }
-  };
-
-  const handleReportSubmit = () => {
-    if (!reportReason) {
-      alert("신고 사유를 선택해 주세요.");
-      return;
-    }
-    if (confirm("상대방을 신고하고 대화방을 즉시 나가시겠습니까?")) {
-      socketRef.current?.emit('report_user', { room, reporterId: userId, reason: reportReason });
-      alert("신고가 접수되었습니다. 철저히 검토하여 조치하겠습니다.");
-      setIsReportModalOpen(false);
-      setReportReason('');
-      socketRef.current?.emit('leave_room', { room });
-      setStep('lobby');
-      setIsTyping(false);
-      setIsConnecting(false);
-    }
-  };
-
-  const handleShareCard = async () => {
-    if (!reportCardRef.current) return;
-    setIsCapturing(true);
-    try {
-      const canvas = await html2canvas(reportCardRef.current, { scale: 2, backgroundColor: '#0a0a0a', useCORS: true });
-      canvas.toBlob(async (blob) => {
-        if (!blob) return;
-        if (navigator.share && navigator.canShare && navigator.canShare({ files: [new File([blob], 'weus_card.png', { type: 'image/png' })] })) {
-          const file = new File([blob], 'weus_persona.png', { type: 'image/png' });
-          await navigator.share({
-            title: 'WE US - 나의 대화 페르소나',
-            text: '나의 소통 능력 티어와 페르소나를 확인해보세요! 👉 we-us.online',
-            files: [file],
-          });
-        } else {
-          const link = document.createElement('a');
-          link.href = canvas.toDataURL('image/png');
-          link.download = 'weus_persona.png';
-          link.click();
-          alert('페르소나 카드가 사진첩에 저장되었습니다. 인스타그램에 바로 공유해 보세요!');
-        }
-      }, 'image/png');
-    } catch (err) {
-      console.error('공유 캡처 에러:', err);
-      alert('이미지 생성 중 오류가 발생했습니다.');
-    } finally {
-      setIsCapturing(false);
-    }
+  const forceLeaveRoom = () => {
+    socketRef.current?.emit('leave_room', { room });
+    setStep('lobby'); setIsTyping(false); setIsConnecting(false); setMyRole(''); setPartnerRole('');
   };
 
   const handleMatchStart = (isAiMode: boolean) => {
-    setIsConnecting(true);
-    setIsSingleMode(isAiMode);
-    
-    const roleData = ROLE_MAP[selectedTopic];
-    if (roleData) {
-      setStep('role_select');
-      setIsConnecting(false);
-    } else {
-      if (isAiMode) {
-        socketRef.current?.emit('start_ai_chat', { topic: selectedTopic, myRole: '익명', aiRole: 'AI 파트너' });
-      } else {
-        socketRef.current?.emit('join_queue', { topic: selectedTopic, role: 'random' });
-      }
+    setIsConnecting(true); setIsSingleMode(isAiMode);
+    if (ROLE_MAP[selectedTopic]) setStep('role_select');
+    else {
+      if (isAiMode) socketRef.current?.emit('start_ai_chat', { topic: selectedTopic, myRole: '익명', aiRole: 'AI 파트너' });
+      else socketRef.current?.emit('join_queue', { topic: selectedTopic, role: 'random' });
       setStep('waiting');
     }
+    setIsConnecting(false);
   };
 
   const confirmRoleAndJoin = (chosenRole: 'A' | 'B' | 'random') => {
-    setIsConnecting(true);
-    const roleData = ROLE_MAP[selectedTopic];
-    
+    setIsConnecting(true); const roleData = ROLE_MAP[selectedTopic];
     if (isSingleMode) {
        const myRoleName = chosenRole === 'A' ? roleData.roleA : chosenRole === 'B' ? roleData.roleB : roleData.roleA; 
        const aiRoleName = chosenRole === 'A' ? roleData.roleB : chosenRole === 'B' ? roleData.roleA : roleData.roleB;
        socketRef.current?.emit('start_ai_chat', { topic: selectedTopic, myRole: myRoleName, aiRole: aiRoleName });
     } else {
-       socketRef.current?.emit('join_queue', { 
-         topic: selectedTopic, 
-         role: chosenRole, 
-         roleA_name: roleData.roleA, 
-         roleB_name: roleData.roleB 
-       });
+       socketRef.current?.emit('join_queue', { topic: selectedTopic, role: chosenRole, roleA_name: roleData.roleA, roleB_name: roleData.roleB });
     }
     setStep('waiting');
   };
 
-  const currentOptions = LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.options || [];
-  const currentRoleData = ROLE_MAP[selectedTopic];
+  const formatTime = (seconds: number) => `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
 
   const totalPlayHours = (myReports.length * 3 / 60).toFixed(1);
   let avgLogic = 0, avgLinguistics = 0, avgEmpathy = 0;
   if (myReports.length > 0) {
-    let sumLogic = 0, sumLinguistics = 0, sumEmpathy = 0, validCount = 0;
-    myReports.forEach(report => {
-      if (report.stats) {
-        sumLogic += report.stats.logic || 50;
-        sumLinguistics += report.stats.linguistics || 50;
-        sumEmpathy += report.stats.empathy || 50;
-        validCount++;
-      }
-    });
-    if (validCount > 0) {
-      avgLogic = Math.round(sumLogic / validCount);
-      avgLinguistics = Math.round(sumLinguistics / validCount);
-      avgEmpathy = Math.round(sumEmpathy / validCount);
-    }
+    let sumL = 0, sumLin = 0, sumE = 0, vc = 0;
+    myReports.forEach(r => { if (r.stats) { sumL += r.stats.logic || 50; sumLin += r.stats.linguistics || 50; sumE += r.stats.empathy || 50; vc++; } });
+    if (vc > 0) { avgLogic = Math.round(sumL/vc); avgLinguistics = Math.round(sumLin/vc); avgEmpathy = Math.round(sumE/vc); }
   }
 
-  let personaTitle = "데이터 수집 중";
-  let personaDesc = "첫 대화를 완료하고 페르소나를 확인하세요.";
-  let tier = "Unranked";
-  
+  let pTitle = "데이터 수집 중", pDesc = "첫 대화를 완료하고 확인하세요.", tier = "Unranked";
   if (myReports.length > 0) {
-    if (avgLogic >= 75 && avgEmpathy <= 50) { personaTitle = "🧊 차가운 팩트폭격기"; personaDesc = "감정보다는 철저한 논리와 팩트로 승부함"; }
-    else if (avgLogic >= 70 && avgEmpathy > 50) { personaTitle = "⚖️ 따뜻한 조언자"; personaDesc = "명확한 논리 위에 다정한 배려를 얹음"; }
-    else if (avgLinguistics >= 75 && avgLogic <= 60) { personaTitle = "✨ 감성적인 음유시인"; personaDesc = "아름답고 정교한 어휘로 감성을 전달함"; }
-    else if (avgEmpathy >= 75 && avgLogic <= 60) { personaTitle = "🕊️ 천사표 리스너"; personaDesc = "압도적인 공감 능력으로 상대의 무장해제를 이끌어냄"; }
-    else if (avgLogic >= 80 && avgLinguistics >= 80) { personaTitle = "👑 무자비한 토론 제왕"; personaDesc = "빈틈없는 논리와 유창한 어휘로 대화를 지배함"; }
-    else { personaTitle = "🌱 성장하는 소통러"; personaDesc = "다양한 대화 방식을 균형 있게 흡수하며 발전 중"; }
+    if (avgLogic >= 75 && avgEmpathy <= 50) { pTitle = "🧊 차가운 팩트폭격기"; pDesc = "감정보다는 논리와 팩트로 승부함"; }
+    else if (avgLogic >= 70 && avgEmpathy > 50) { pTitle = "⚖️ 따뜻한 조언자"; pDesc = "명확한 논리 위에 다정한 배려를 얹음"; }
+    else if (avgLinguistics >= 75 && avgLogic <= 60) { pTitle = "✨ 감성적인 음유시인"; pDesc = "아름답고 정교한 어휘로 감성을 전달함"; }
+    else if (avgEmpathy >= 75 && avgLogic <= 60) { pTitle = "🕊️ 천사표 리스너"; pDesc = "압도적인 공감 능력으로 무장해제를 이끌어냄"; }
+    else if (avgLogic >= 80 && avgLinguistics >= 80) { pTitle = "👑 무자비한 토론 제왕"; pDesc = "빈틈없는 논리와 유창한 어휘로 대화를 지배함"; }
+    else { pTitle = "🌱 성장하는 소통러"; pDesc = "다양한 대화 방식을 균형 있게 흡수하며 발전 중"; }
 
-    const overallScore = (avgLogic + avgLinguistics + avgEmpathy) / 3;
-    if (overallScore >= 90) tier = "Top 1%";
-    else if (overallScore >= 80) tier = "Top 10%";
-    else if (overallScore >= 70) tier = "Top 30%";
-    else tier = "Top 50%";
+    const os = (avgLogic + avgLinguistics + avgEmpathy) / 3;
+    if (os >= 90) tier = "Top 1%"; else if (os >= 80) tier = "Top 10%"; else if (os >= 70) tier = "Top 30%"; else tier = "Top 50%";
   }
 
   return (
-    // h-[100dvh] flex-col 로 화면 꽉 채우기
     <div className="h-[100dvh] flex flex-col w-full bg-[#050505] text-gray-100 font-sans relative overflow-hidden">
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/10 blur-[120px] rounded-full pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-900/10 blur-[120px] rounded-full pointer-events-none" />
 
-      {/* 내부 스크롤 영역 (PC 스크롤바 완전 숨김 처리) */}
       <main className="flex-1 w-full max-w-lg mx-auto flex flex-col relative z-10 px-4 pt-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-        
-        {step === 'lobby' && activeTab === 'myRecord' && (
-          <div className="w-full bg-[#080808]/90 backdrop-blur-2xl border border-white/5 rounded-[2rem] p-6 flex flex-col shadow-2xl relative mb-6">
-            <div className="flex justify-between items-end mb-6 shrink-0">
-              <div>
-                <h2 className="text-xs font-semibold tracking-[0.3em] text-white/50 mb-1">ANALYTICS</h2>
-                <p className="text-[10px] text-white/30 tracking-widest truncate max-w-[150px]">{userId}</p>
-              </div>
-              <div className="text-right flex flex-col items-end gap-2">
-                <span className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-blue-500">{tier}</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 mb-6 shrink-0">
-              <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-3 flex flex-col justify-between">
-                <span className="text-[10px] text-white/40 tracking-widest uppercase mb-1">누적 자산</span>
-                <span className="text-xl font-light text-white">{totalPlayHours}<span className="text-[10px] text-white/30 ml-1">hrs</span></span>
-              </div>
-              <div className="bg-white/[0.02] border border-white/5 rounded-2xl p-3 flex flex-col justify-between">
-                <span className="text-[10px] text-white/40 tracking-widest uppercase mb-1">페르소나</span>
-                <span className="text-xs font-semibold text-emerald-300">{personaTitle}</span>
-              </div>
-            </div>
-
-            <div className="space-y-4 mb-6 shrink-0">
-              <div>
-                <div className="flex justify-between text-[10px] font-medium text-white/60 mb-1 uppercase tracking-wider"><span>Logic</span><span>{myReports.length > 0 ? avgLogic : '-'} / 100</span></div>
-                <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden"><div className="h-full bg-blue-500 transition-all" style={{ width: `${myReports.length > 0 ? avgLogic : 0}%` }}></div></div>
-              </div>
-              <div>
-                <div className="flex justify-between text-[10px] font-medium text-white/60 mb-1 uppercase tracking-wider"><span>Linguistics</span><span>{myReports.length > 0 ? avgLinguistics : '-'} / 100</span></div>
-                <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 transition-all" style={{ width: `${myReports.length > 0 ? avgLinguistics : 0}%` }}></div></div>
-              </div>
-              <div>
-                <div className="flex justify-between text-[10px] font-medium text-white/60 mb-1 uppercase tracking-wider"><span>Empathy</span><span>{myReports.length > 0 ? avgEmpathy : '-'} / 100</span></div>
-                <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden"><div className="h-full bg-purple-500 transition-all" style={{ width: `${myReports.length > 0 ? avgEmpathy : 0}%` }}></div></div>
-              </div>
-            </div>
-
-            <div className="flex-1 space-y-0 -mx-4 px-4 pb-2">
-              <h3 className="text-[10px] text-white/30 tracking-widest uppercase mb-2 py-1">인사이트 노트</h3>
-              {myReports.length === 0 ? (
-                <div className="text-center pt-6"><p className="text-xs text-white/30 tracking-widest">데이터가 없습니다.</p></div>
-              ) : (
-                myReports.map((report, idx) => (
-                  <div key={idx} className="border-b border-white/5 py-4 last:border-0 group cursor-pointer">
-                    <div className="flex justify-between items-baseline mb-1">
-                      <span className={`text-[10px] font-bold tracking-widest uppercase ${report.type === 'single' ? 'text-emerald-500/80' : 'text-blue-500/80'}`}>
-                        {report.type === 'single' ? `TUTORING • ${report.topic || 'AI'}` : `SALON • ${report.topic}`}
-                      </span>
-                      <span className="text-[8px] text-white/20 font-mono">{new Date(report.createdAt).toLocaleDateString()}</span>
-                    </div>
-                    <p className="text-[11px] text-white/70 leading-relaxed whitespace-pre-line group-hover:text-white transition-colors">{report.aiReport}</p>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-
         {step === 'lobby' && activeTab === 'lobby' && (
-          <div className="w-full flex flex-col justify-center space-y-6 flex-1 min-h-[500px]">
-            <div className="text-center space-y-1 mb-1 shrink-0">
-              <h1 className="text-3xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-500 drop-shadow-lg">
-                WE US.
-              </h1>
-              <p className="text-gray-400 font-light tracking-widest text-[10px]">우리가 되어가는 3분의 시간</p>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-2 shrink-0">
-              {LOBBY_CATEGORIES.map(cat => (
-                <button
-                  key={cat.id}
-                  onClick={() => {
-                    setSelectedCategory(cat.id);
-                    setSelectedTopic(cat.options[0]); 
-                    setIsDropdownOpen(false); 
-                  }}
-                  className={`p-3 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all border ${
-                    selectedCategory === cat.id 
-                    ? 'bg-white/10 border-white/30 shadow-[0_0_15px_rgba(255,255,255,0.1)]' 
-                    : 'bg-white/[0.02] border-white/5 opacity-50 hover:opacity-100'
-                  }`}
-                >
-                  <span className="text-xl mb-1">{cat.icon}</span>
-                  <span className="text-[10px] font-bold tracking-wider text-white whitespace-nowrap">{cat.title}</span>
-                </button>
-              ))}
-            </div>
-
-            <div className="bg-white/[0.03] backdrop-blur-xl p-5 rounded-3xl border border-white/5 shadow-2xl space-y-4 shrink-0">
-              <div className="flex flex-col text-left space-y-2 relative">
-                <label className="text-[11px] text-emerald-400 uppercase tracking-widest font-bold">
-                  {LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.desc}
-                </label>
-                
-                <div className="relative">
-                  <div 
-                    onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                    className="bg-[#0a0a0a] border border-white/10 text-white text-[14px] rounded-xl w-full p-3.5 flex justify-between items-center cursor-pointer hover:border-white/30 transition-colors"
-                  >
-                    <span>{selectedTopic}</span>
-                    <span className={`transition-transform duration-200 text-white/50 text-[10px] ${isDropdownOpen ? 'rotate-180' : ''}`}>▼</span>
-                  </div>
-                  
-                  {isDropdownOpen && (
-                    <div className="absolute top-[calc(100%+6px)] left-0 w-full bg-[#0a0a0a] border border-emerald-500/30 rounded-xl overflow-hidden z-50 shadow-[0_0_15px_rgba(16,185,129,0.15)] flex flex-col divide-y divide-white/5">
-                      {currentOptions.map(opt => (
-                        <button 
-                          key={opt}
-                          onClick={() => { setSelectedTopic(opt); setIsDropdownOpen(false); }}
-                          className={`p-3 text-left text-[13px] transition-colors w-full ${
-                            selectedTopic === opt ? 'bg-emerald-500/20 text-emerald-300 font-bold' : 'text-white/70 hover:bg-white/5'
-                          }`}
-                        >
-                          {opt}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-2 pt-1">
-                <button 
-                  disabled={isConnecting}
-                  onClick={() => handleMatchStart(false)}
-                  className="w-full bg-white text-black font-extrabold tracking-wide py-3.5 rounded-xl hover:bg-gray-200 transition-all shadow-lg flex justify-center items-center gap-2 text-[14px]"
-                >
-                  {isConnecting && !isSingleMode ? <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin"/> : null}
-                  익명 매칭 시작하기
-                </button>
-                <button 
-                  disabled={isConnecting}
-                  onClick={() => handleMatchStart(true)}
-                  className="w-full bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-3.5 rounded-xl border border-white/10 transition-all flex justify-center items-center gap-2 text-[14px]"
-                >
-                  {isConnecting && isSingleMode ? <div className="w-3 h-3 border-2 border-white/50 border-t-transparent rounded-full animate-spin"/> : null}
-                  AI와 먼저 연습하기
-                </button>
-              </div>
-            </div>
-          </div>
+          <LobbyView selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} selectedTopic={selectedTopic} setSelectedTopic={setSelectedTopic} isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} isConnecting={isConnecting} isSingleMode={isSingleMode} handleMatchStart={handleMatchStart} />
+        )}
+        {step === 'lobby' && activeTab === 'myRecord' && (
+          <RecordView userId={userId} myReports={myReports} totalPlayHours={totalPlayHours} personaTitle={pTitle} personaDesc={pDesc} tier={tier} avgLogic={avgLogic} avgLinguistics={avgLinguistics} avgEmpathy={avgEmpathy} />
+        )}
+        {step === 'lobby' && activeTab === 'profile' && (
+          <ProfileView userId={userId} tier={tier} personaTitle={pTitle} />
         )}
 
-        {step === 'role_select' && currentRoleData && (
+        {step === 'role_select' && ROLE_MAP[selectedTopic] && (
           <div className="text-center w-full flex-1 flex flex-col justify-center">
-            <div className="bg-[#080808]/90 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-6 shadow-2xl shrink-0">
+            <div className="bg-[#080808]/90 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-6 shadow-2xl">
               <h2 className="text-lg font-bold text-white mb-2">역할을 선택하세요</h2>
-              <p className="text-[11px] text-white/50 mb-6 tracking-widest break-keep">
-                [{selectedTopic}] 1:1 대결을 위한 역할을 고릅니다.
-              </p>
-              
-              <div className="space-y-3 mb-6">
-                <button onClick={() => confirmRoleAndJoin('A')} className="w-full bg-white/5 hover:bg-white/10 border border-emerald-500/30 py-3.5 rounded-xl font-bold text-emerald-400 transition flex justify-between px-5">
-                  <span className="text-[14px]">{currentRoleData.roleA}</span>
-                  <span className="text-[10px] font-normal text-white/40 flex items-center">선택 ➔</span>
-                </button>
-                <button onClick={() => confirmRoleAndJoin('B')} className="w-full bg-white/5 hover:bg-white/10 border border-blue-500/30 py-3.5 rounded-xl font-bold text-blue-400 transition flex justify-between px-5">
-                  <span className="text-[14px]">{currentRoleData.roleB}</span>
-                  <span className="text-[10px] font-normal text-white/40 flex items-center">선택 ➔</span>
-                </button>
-                {!isSingleMode && (
-                  <button onClick={() => confirmRoleAndJoin('random')} className="w-full bg-white/5 hover:bg-white/10 border border-white/10 py-3.5 rounded-xl font-bold text-white/80 transition flex justify-between px-5">
-                    <span className="text-[14px]">상관없음 (랜덤)</span>
-                    <span className="text-[10px] font-normal text-white/40 flex items-center">빠른매칭 ➔</span>
-                  </button>
-                )}
+              <div className="space-y-3 mb-6 mt-6">
+                <button onClick={() => confirmRoleAndJoin('A')} className="w-full bg-white/5 py-3.5 rounded-xl border border-emerald-500/30 text-emerald-400">{ROLE_MAP[selectedTopic].roleA}</button>
+                <button onClick={() => confirmRoleAndJoin('B')} className="w-full bg-white/5 py-3.5 rounded-xl border border-blue-500/30 text-blue-400">{ROLE_MAP[selectedTopic].roleB}</button>
+                {!isSingleMode && <button onClick={() => confirmRoleAndJoin('random')} className="w-full bg-white/5 py-3.5 rounded-xl border border-white/10">상관없음 (랜덤)</button>}
               </div>
-              <button onClick={() => { setStep('lobby'); setIsConnecting(false); }} className="text-xs text-white/30 hover:text-white/60 underline tracking-widest">
-                뒤로 가기
-              </button>
+              <button onClick={() => { setStep('lobby'); setIsConnecting(false); }} className="text-xs text-white/30 underline">뒤로 가기</button>
             </div>
           </div>
         )}
 
         {step === 'waiting' && (
           <div className="text-center space-y-6 flex-1 flex flex-col justify-center">
-            <div className="relative w-16 h-16 mx-auto">
-              <div className="absolute inset-0 border-2 border-white/20 rounded-full"></div>
-              <div className="absolute inset-0 border-2 border-white rounded-full border-t-transparent animate-spin"></div>
-            </div>
-            <p className="text-lg font-light text-white tracking-wider">상대방을 찾는 중...</p>
-            <div className="inline-block px-4 py-1.5 rounded-full border border-white/10 bg-white/5 backdrop-blur-sm">
-              <p className="text-xs text-white/60">{selectedTopic}</p>
-            </div>
-            <div className="pt-6">
-              <button onClick={() => { 
-                setStep('lobby'); 
-                setIsConnecting(false);
-                socketRef.current?.emit('leave_queue');
-              }} className="text-xs text-white/30 hover:text-white/80 underline tracking-widest transition-colors">
-                취소
-              </button>
-            </div>
+            <div className="relative w-16 h-16 mx-auto"><div className="absolute inset-0 border-2 border-white/20 rounded-full"></div><div className="absolute inset-0 border-2 border-white rounded-full border-t-transparent animate-spin"></div></div>
+            <p className="text-lg font-light">상대방을 찾는 중...</p>
+            <button onClick={() => { setStep('lobby'); setIsConnecting(false); socketRef.current?.emit('leave_queue'); }} className="text-xs text-white/30 underline">취소</button>
           </div>
         )}
 
         {step === 'chat' && (
-          <div className="w-full flex-1 mb-4 bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative">
-            {isReportModalOpen && (
-              <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-[70] p-6 backdrop-blur-sm">
-                <div className="w-full max-w-sm bg-[#0a0a0a] border border-white/10 rounded-[2rem] p-8 shadow-2xl flex flex-col">
-                  <h3 className="text-lg font-bold text-red-400 mb-2 flex items-center gap-2 tracking-widest">🚨 사용자 신고</h3>
-                  <p className="text-xs text-white/50 mb-6 leading-relaxed">건전한 환경을 위해 사유를 선택해 주세요. 신고 즉시 대화가 차단되며 서버로 전송됩니다.</p>
-                  <div className="space-y-2 mb-8">
-                    {['욕설 및 비하', '음란성 발언', '광고 및 도배', '기타 사유'].map((reason) => (
-                      <button key={reason} onClick={() => setReportReason(reason)} className={`w-full text-left p-4 rounded-xl text-xs font-semibold tracking-wider transition-all border ${reportReason === reason ? 'bg-red-500/10 border-red-500/50 text-red-400' : 'bg-white/[0.02] border-transparent text-white/50 hover:bg-white/[0.05]'}`}>
-                        {reason}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="flex gap-3">
-                    <button onClick={() => setIsReportModalOpen(false)} className="flex-1 py-3.5 bg-white/5 text-white/70 rounded-xl text-xs font-bold tracking-widest hover:bg-white/10 transition-colors">취소</button>
-                    <button onClick={handleReportSubmit} className="flex-1 py-3.5 bg-red-900/50 text-red-200 border border-red-800/50 rounded-xl text-xs font-bold tracking-widest hover:bg-red-800 transition-colors">신고 및 나가기</button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {showAd && (
-              <div className="absolute inset-0 bg-black/95 flex flex-col items-center justify-center z-[60] p-4 backdrop-blur-md">
-                <div className="w-full max-w-sm bg-gray-900 rounded-2xl overflow-hidden border border-gray-700 shadow-2xl flex flex-col">
-                  <div className="p-2 bg-gray-950 text-[10px] text-gray-500 text-right">Sponsored</div>
-                  <div className="h-56 bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex flex-col items-center justify-center p-6 text-center relative">
-                    <h3 className="text-2xl font-black text-white mb-2 z-10">분석을 완료하는 중...</h3>
-                    <p className="text-white/90 text-sm z-10 font-medium">WE US 프리미엄 패스를 확인해보세요</p>
-                  </div>
-                  <div className="p-4 flex justify-between items-center bg-gray-900 border-t border-gray-800">
-                    <span className="text-xs text-gray-400 font-bold">{adCountdown > 0 ? `AI 분석 중...` : '리포트 준비 완료!'}</span>
-                    <button onClick={() => setShowAd(false)} disabled={adCountdown > 0} className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${adCountdown > 0 ? 'bg-gray-800 text-gray-500' : 'bg-white text-black hover:bg-gray-200'}`}>
-                      {adCountdown > 0 ? `${adCountdown}초 후 건너뛰기` : '결과 보기 ▶'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {isAnalyzing && !showAd && !reportData && (
-              <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center z-40 backdrop-blur-md">
-                <div className="w-12 h-12 border-2 border-white/20 border-t-white rounded-full animate-spin mb-6"></div>
-                <p className="text-white font-light tracking-widest">분석 중입니다...</p>
-              </div>
-            )}
-
-            {reportData && !showAd && (
-              <div className="absolute inset-0 bg-[#050505]/95 flex flex-col items-center justify-center z-50 p-6 backdrop-blur-xl">
-                <div ref={reportCardRef} className="bg-[#0a0a0a] border border-white/10 rounded-3xl p-6 w-full max-w-sm shadow-2xl flex flex-col">
-                  <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4">
-                     <h2 className="text-[10px] font-bold tracking-[0.3em] text-white/50">WE US REPORT</h2>
-                     <span className="text-[10px] text-emerald-400 border border-emerald-400/30 px-2 py-1 rounded-full">{tier}</span>
-                  </div>
-                  <h2 className="text-lg font-light tracking-widest text-center mb-6 text-white">
-                    {isSingleMode ? 'PERSONAL TUTORING' : 'CHEMISTRY ANALYSIS'}
-                  </h2>
-                  <div className="space-y-4 text-xs text-gray-300 whitespace-pre-line leading-relaxed flex-1 bg-white/[0.02] p-5 rounded-2xl border border-white/5">
-                    {reportData}
-                  </div>
-                  <div className="mt-4 text-center text-[10px] text-white/30 font-mono">we-us.online</div>
-                </div>
-
-                <div className="w-full max-w-sm mt-4 flex gap-3 px-2">
-                  <button onClick={handleShareCard} disabled={isCapturing} className="flex-1 bg-white text-black font-bold tracking-wide py-3 rounded-xl hover:bg-gray-200 transition flex justify-center items-center gap-2 text-sm">
-                    {isCapturing ? <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"/> : '📸 인스타용 캡처'}
-                  </button>
-                  <button onClick={() => { setReportData(null); setStep('lobby'); }} className="px-6 bg-transparent hover:bg-white/5 text-white/70 font-semibold tracking-wide py-3 rounded-xl border border-white/10 transition text-sm">
-                    로비
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="bg-white/[0.02] p-4 flex justify-between items-center border-b border-white/5 shrink-0">
-              <div className="flex flex-col gap-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                  <span className="font-semibold text-xs text-white/90 truncate">
-                    {isSingleMode ? `AI 싱글: ${selectedTopic}` : `${selectedTopic}`}
-                  </span>
-                  <div className="flex items-center gap-1 shrink-0 ml-1">
-                    {!isSingleMode && (
-                      <button onClick={() => setIsReportModalOpen(true)} className="bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[10px] px-2 py-0.5 rounded-full transition-colors border border-transparent hover:border-red-500/30 font-bold whitespace-nowrap shrink-0">🚨 신고</button>
-                    )}
-                    <button onClick={leaveRoom} className="bg-white/5 hover:bg-white/10 text-white/50 hover:text-white/80 text-[10px] px-2 py-0.5 rounded-full transition-colors border border-transparent whitespace-nowrap shrink-0">나가기</button>
-                  </div>
-                </div>
-                <span className="text-[11px] text-emerald-400 font-bold tracking-wider pt-0.5 truncate">
-                  내 역할: [{myRole}]
-                </span>
-              </div>
-              <div className={`px-2.5 py-1 rounded-full border shrink-0 ${timeLeft < 60 ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-white/5 border-white/10 text-white/80'}`}>
-                <span className="font-mono text-xs tracking-wider font-medium">{formatTime(timeLeft)}</span>
-              </div>
-            </div>
-
-            <div className="flex-1 p-4 overflow-y-auto space-y-4 flex flex-col [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-              {messages.map((msg, idx) => (
-                <div key={idx} className={`flex ${msg.sender === myRole || msg.sender === '나' ? 'justify-end' : msg.sender === 'System' ? 'justify-center' : 'justify-start'}`}>
-                  <div className={`max-w-[85%] p-3.5 rounded-2xl text-[13px] leading-relaxed 
-                    ${msg.sender === myRole || msg.sender === '나' ? 'bg-white text-black rounded-tr-sm' : 
-                      msg.sender === 'System' ? 'bg-emerald-900/20 text-emerald-100 border border-emerald-500/30 rounded-xl w-full mx-auto text-center font-medium tracking-wide shadow-lg' : 
-                      'bg-white/10 text-white rounded-tl-sm'}`}>
-                    {msg.sender !== 'System' && <span className={`text-[10px] block mb-1 font-bold ${msg.sender === myRole || msg.sender === '나' ? 'text-gray-500' : 'text-white/40'}`}>{msg.sender}</span>}
-                    <span className="whitespace-pre-line">{msg.text}</span>
-                  </div>
-                </div>
-              ))}
-              
-              {isTyping && (
-                <div className="flex justify-start animate-fade-in-up">
-                  <div className="max-w-[80%] p-3 rounded-2xl bg-white/5 border border-white/10 text-white/50 rounded-tl-sm flex items-center gap-1">
-                    <div className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                    <div className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                    <div className="w-1.5 h-1.5 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {timeLeft <= 60 && !isSingleMode && !isAnalyzing && !reportData && extensionCount < 2 && !showAd && (
-              <div className="absolute bottom-[70px] left-0 w-full p-2 bg-gradient-to-t from-[#0a0a0a] to-transparent flex flex-col items-center justify-center">
-                <button onClick={() => { setHasVoted(true); socketRef.current?.emit('vote_extend', { room }); }} disabled={hasVoted} className={`px-5 py-2 rounded-full font-bold text-xs shadow-lg transition-all border ${hasVoted ? 'bg-white/5 border-white/10 text-white/30 cursor-not-allowed' : 'bg-emerald-500/20 border-emerald-500/50 hover:bg-emerald-500/30 text-emerald-300'}`}>
-                  {hasVoted ? `동의 대기중 ${voteStatus}` : `+ 2분 연장하기 (${extensionCount}/2)`}
-                </button>
-              </div>
-            )}
-
-            <form onSubmit={sendMessage} className="p-3 bg-[#050505] border-t border-white/5 flex gap-2 z-10 relative shrink-0">
-              <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} disabled={isAnalyzing || !!reportData || showAd} placeholder="메시지 입력..." className="flex-1 bg-white/5 text-white px-4 py-3 rounded-full outline-none focus:bg-white/10 transition-colors disabled:opacity-50 text-sm placeholder:text-white/20 border border-transparent focus:border-white/10"/>
-              <button type="submit" disabled={isAnalyzing || !!reportData || showAd || !inputText.trim()} className="bg-white text-black w-10 h-10 rounded-full flex items-center justify-center font-bold hover:bg-gray-200 disabled:opacity-50 transition-colors shrink-0">↑</button>
-            </form>
-          </div>
+          <ChatRoom socketRef={socketRef} room={room} userId={userId} myRole={myRole} partnerRole={partnerRole} selectedTopic={selectedTopic} isSingleMode={isSingleMode} messages={messages} setMessages={setMessages} isTyping={isTyping} timeLeft={timeLeft} formatTime={formatTime} isAnalyzing={isAnalyzing} reportData={reportData} setReportData={setReportData} showAd={showAd} setShowAd={setShowAd} adCountdown={adCountdown} tier={tier} hasVoted={hasVoted} setHasVoted={setHasVoted} voteStatus={voteStatus} extensionCount={extensionCount} forceLeaveRoom={forceLeaveRoom} />
         )}
       </main>
 
-      {/* ★ 하단 네비게이션 고정 영역 (절대 침범 불가 물리적 블록) */}
+      {/* ★ V2 탭 네비게이션: PROFILE 탭 신설 */}
       {step === 'lobby' && (
         <nav className="w-full max-w-lg mx-auto pb-6 pt-2 flex justify-center z-20 bg-gradient-to-t from-[#050505] to-transparent shrink-0">
-          <div className="flex items-center bg-black/80 backdrop-blur-xl border border-white/10 rounded-full p-1.5 shadow-[0_0_20px_rgba(0,0,0,0.5)]">
-            <button onClick={() => setActiveTab('lobby')} className={`px-8 py-3 rounded-full text-[12px] font-bold tracking-widest transition-all ${activeTab === 'lobby' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>LOBBY</button>
-            <button onClick={() => setActiveTab('myRecord')} className={`px-8 py-3 rounded-full text-[12px] font-bold tracking-widest transition-all ${activeTab === 'myRecord' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>RECORD</button>
+          <div className="flex items-center bg-black/80 backdrop-blur-xl border border-white/10 rounded-full p-1 shadow-[0_0_20px_rgba(0,0,0,0.5)]">
+            <button onClick={() => setActiveTab('lobby')} className={`px-6 py-2.5 rounded-full text-[11px] font-bold tracking-widest transition-all ${activeTab === 'lobby' ? 'bg-white text-black' : 'text-white/40 hover:text-white/80'}`}>LOBBY</button>
+            <button onClick={() => setActiveTab('myRecord')} className={`px-6 py-2.5 rounded-full text-[11px] font-bold tracking-widest transition-all ${activeTab === 'myRecord' ? 'bg-white text-black' : 'text-white/40 hover:text-white/80'}`}>RECORD</button>
+            <button onClick={() => setActiveTab('profile')} className={`px-6 py-2.5 rounded-full text-[11px] font-bold tracking-widest transition-all ${activeTab === 'profile' ? 'bg-white text-black' : 'text-white/40 hover:text-white/80'}`}>PROFILE</button>
           </div>
         </nav>
       )}
