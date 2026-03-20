@@ -16,6 +16,15 @@ mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log("🍃 MongoDB 연결 성공! 대화 기록이 영구 저장됩니다."))
   .catch(err => console.error("❌ DB 연결 실패 (서버 환경을 확인하세요):", err));
 
+// ★ V2 신규 스키마: 유저 닉네임 및 친구(인맥) 목록 영구 저장용
+const UserSchema = new mongoose.Schema({
+  userId: { type: String, unique: true },
+  nickname: { type: String, default: '익명의 소통러' },
+  friends: [{ type: String }], 
+  createdAt: { type: Date, default: Date.now }
+});
+const User = mongoose.model('User', UserSchema);
+
 const ReportSchema = new mongoose.Schema({
   roomName: String,
   userIds: [String], 
@@ -138,17 +147,18 @@ function tryMatch(topicKey) {
       participants: 2, 
       isGeneratingReport: false, 
       topic: topicKey, 
-      userIds: new Set(),
+      // ★ V2 추가: 매칭 시 상대방의 정보를 확실히 기록해두기 위해 userIds 초기화
+      userIds: new Set([user1.userId, user2.userId].filter(Boolean)),
       endTime: Date.now() + (180 * 1000)
     };
 
-    user1.join(roomName);
-    user2.join(roomName);
+    user1.socket.join(roomName);
+    user2.socket.join(roomName);
     
-    user1.userAlias = role1;
-    user2.userAlias = role2;
-    user1.roomName = roomName;
-    user2.roomName = roomName;
+    user1.socket.userAlias = role1;
+    user2.socket.userAlias = role2;
+    user1.socket.roomName = roomName;
+    user2.socket.roomName = roomName;
 
     io.to(user1.id).emit('matched', { roomName, partner: role2, myRole: role1, participantCount: 2 });
     io.to(user2.id).emit('matched', { roomName, partner: role1, myRole: role2, participantCount: 2 });
@@ -157,26 +167,68 @@ function tryMatch(topicKey) {
   };
 
   if (q.roleA.length > 0 && q.roleB.length > 0) {
-    createRoom(q.roleA.shift().socket, q.roleB.shift().socket, q.roleA_name, q.roleB_name);
+    createRoom(q.roleA.shift(), q.roleB.shift(), q.roleA_name, q.roleB_name);
   } else if (q.roleA.length > 0 && q.random.length > 0) {
-    createRoom(q.roleA.shift().socket, q.random.shift().socket, q.roleA_name, q.roleB_name);
+    createRoom(q.roleA.shift(), q.random.shift(), q.roleA_name, q.roleB_name);
   } else if (q.roleB.length > 0 && q.random.length > 0) {
-    createRoom(q.random.shift().socket, q.roleB.shift().socket, q.roleA_name, q.roleB_name);
+    createRoom(q.random.shift(), q.roleB.shift(), q.roleA_name, q.roleB_name);
   } else if (q.random.length > 1) {
-    createRoom(q.random.shift().socket, q.random.shift().socket, q.roleA_name, q.roleB_name);
+    createRoom(q.random.shift(), q.random.shift(), q.roleA_name, q.roleB_name);
   }
 }
 
 io.on('connection', (socket) => {
-  
+
+  // ==========================================
+  // ★ V2 신규 추가 구역: 프로필 & 친구 관리 소켓
+  // ==========================================
+  socket.on('get_profile', async (userId) => {
+    try {
+      if (!userId) return;
+      let user = await User.findOne({ userId });
+      if (!user) user = await User.create({ userId });
+      
+      const friendsData = await User.find({ userId: { $in: user.friends } }).select('userId nickname');
+      socket.emit('receive_profile', { nickname: user.nickname, friends: friendsData });
+    } catch (err) { console.error(err); }
+  });
+
+  socket.on('update_nickname', async (data) => {
+    try {
+      if (!data.userId || !data.nickname) return;
+      const updatedUser = await User.findOneAndUpdate(
+        { userId: data.userId }, 
+        { nickname: data.nickname }, 
+        { new: true, upsert: true }
+      );
+      socket.emit('receive_profile', { nickname: updatedUser.nickname, friends: [] });
+    } catch (err) { console.error(err); }
+  });
+
+  socket.on('add_friend', async (data) => {
+    try {
+      if (!data.userId || !data.friendId) return;
+      const user = await User.findOne({ userId: data.userId });
+      if (user && !user.friends.includes(data.friendId)) {
+        user.friends.push(data.friendId);
+        await user.save();
+      }
+      const updatedUser = await User.findOne({ userId: data.userId });
+      const friendsData = await User.find({ userId: { $in: updatedUser.friends } }).select('userId nickname');
+      socket.emit('receive_profile', { nickname: updatedUser.nickname, friends: friendsData });
+    } catch (err) { console.error(err); }
+  });
+  // ==========================================
+
   socket.on('join_queue', (data) => {
-    const { topic, role, roleA_name, roleB_name } = data;
+    // ★ V2 추가: 큐 진입 시 userId 도 함께 전달받아 대기열에 저장 (친구 추가 용도)
+    const { topic, role, roleA_name, roleB_name, userId } = data;
     
     if (!waitingQueues[topic]) {
       waitingQueues[topic] = { roleA: [], roleB: [], random: [], roleA_name, roleB_name };
     }
     
-    const queueData = { id: socket.id, socket: socket };
+    const queueData = { id: socket.id, socket: socket, userId: userId };
 
     if (role === 'A') waitingQueues[topic].roleA.push(queueData);
     else if (role === 'B') waitingQueues[topic].roleB.push(queueData);
@@ -202,7 +254,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('start_ai_chat', (data) => {
-    const { topic, myRole, aiRole } = data;
+    const { topic, myRole, aiRole, userId } = data;
     const roomId = `ai_${socket.id}_${Date.now()}`;
     socket.join(roomId);
     
@@ -214,7 +266,7 @@ io.on('connection', (socket) => {
       topic: topic, 
       history: [], 
       isGeneratingReport: false,
-      userIds: new Set(), 
+      userIds: new Set(userId ? [userId] : []), 
       endTime: Date.now() + (180 * 1000) 
     };
 
@@ -381,6 +433,7 @@ setInterval(async () => {
 
       try {
         if (!reportContent.includes("불안정하여")) {
+          // ★ V2 연동: 리포트 데이터(Report) 저장 및 유저가 나중에 파트너 아이디를 추적할 수 있도록 userIds 명확히 저장
           await Report.create({
             roomName: room, 
             userIds: Array.from(roomData.userIds), 
@@ -401,7 +454,7 @@ setInterval(async () => {
       if (reportContent.includes("불안정하여")) {
         io.to(room).emit('receive_report', { error: true });
       } else {
-        io.to(room).emit('receive_report', { reportText: cleanReportText });
+        io.to(room).emit('receive_report', { reportText: cleanReportText, partnerId: Array.from(roomData.userIds).find(id => id) }); // 파트너 ID 프론트로 반환 준비
       }
     }
   }
