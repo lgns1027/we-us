@@ -29,6 +29,7 @@ const UserSchema = new mongoose.Schema({
   nickname: { type: String, default: '익명의 소통러' },
   friends: [{ type: String }], 
   pushToken: { type: String, default: '' }, // ★ 푸시 토큰 저장 필드 추가
+  blockedUsers: [{ type: String }], // ★ 신규: 영구 차단한 유저 목록 저장
   createdAt: { type: Date, default: Date.now }
 });
 const User = mongoose.model('User', UserSchema);
@@ -78,12 +79,12 @@ const activeRooms = {};
 const roomVotes = {};
 const openLoungeHistory = []; // ★ 신규: 광장 대화 내역 저장 (최대 100개 유지)
 
-// ★ AI 답변 끊김 방지를 위해 maxTokens 기본값을 300에서 800으로 상향
+// ★ AI 답변 끊김 방지를 위해 maxTokens를 300으로 설정
 async function getGoogleAIResponse(systemPrompt, history, maxTokens = 300) {
-  // ★ 대표님 절대 지시사항: Gemini 임의 변경 금지. 오직 Gemma 3 모델 3종만 순차 사용
+  // ★ 대표님 지시사항: 12b -> 27b -> 4b 순서 유지
   const modelsToTry = [
-    "gemma-3-27b",
     "gemma-3-12b",
+    "gemma-3-27b",
     "gemma-3-4b"
   ];
 
@@ -280,6 +281,13 @@ io.on('connection', (socket) => {
 
   socket.on('send_dm', async ({ senderId, receiverId, text }) => {
     try {
+      // ★ 신규 방어막: 상대방이 나를 차단했는지 확인
+      const receiver = await User.findOne({ userId: receiverId });
+      if (receiver && receiver.blockedUsers && receiver.blockedUsers.includes(senderId)) {
+        console.log(`🛡️ [DM 차단됨] ${receiverId}가 ${senderId}의 쪽지를 차단함`);
+        return; // 전송 중지
+      }
+
       const cleanText = filterProfanity(text);
       const newMsg = await DM.create({ senderId, receiverId, text: cleanText });
       
@@ -287,7 +295,6 @@ io.on('connection', (socket) => {
       io.emit('new_dm_arrived', newMsg);
 
       // ★ 오프라인 상대방에게 푸시 알림 발송 (Expo Push API 사용)
-      const receiver = await User.findOne({ userId: receiverId });
       const sender = await User.findOne({ userId: senderId });
 
       if (receiver && receiver.pushToken) {
@@ -307,10 +314,37 @@ io.on('connection', (socket) => {
             data: { screen: 'profile', senderId: senderId }, // 폰 터치 시 인자값 전달용
           }),
         });
-        console.log(`✉️ [푸시 발송 완료] ${senderName} -> ${receiver.nickname}`);
       }
     } catch (err) {
       console.error("❌ [DM 전송 에러]:", err);
+    }
+  });
+
+  // ★ 신규 기능: 사용자 영구 차단 처리
+  socket.on('block_user', async (data) => {
+    try {
+      const { room, userId } = data;
+      const roomData = activeRooms[room];
+      if (!roomData) return;
+
+      let partnerId = null;
+      for (let id of roomData.userIds) {
+        if (id !== userId && id !== null) {
+          partnerId = id;
+          break;
+        }
+      }
+
+      if (partnerId) {
+        const user = await User.findOne({ userId });
+        if (user && !user.blockedUsers.includes(partnerId)) {
+          user.blockedUsers.push(partnerId);
+          await user.save();
+          console.log(`🚫 [차단 완료] ${userId}가 ${partnerId}를 영구 차단함`);
+        }
+      }
+    } catch (err) {
+      console.error("❌ [차단 에러]:", err);
     }
   });
 
@@ -383,7 +417,7 @@ io.on('connection', (socket) => {
       roomData.history.push({ role: 'user', content: cleanText }); 
       
       const systemPrompt = getPersonaPrompt(roomData.topic, false, socket.aiPartnerRole);
-      let aiReply = await getGoogleAIResponse(systemPrompt, roomData.history.slice(-8), 800); // ★ 토큰 상향
+      let aiReply = await getGoogleAIResponse(systemPrompt, roomData.history.slice(-8), 300); 
       
       // 이름표 강제 삭제 필터
       aiReply = aiReply.replace(/^.*?:/, '').trim();
@@ -413,7 +447,7 @@ io.on('connection', (socket) => {
     const chatHistory = data.history.slice(-5).map(msg => ({ role: 'user', content: `${msg.sender}: ${msg.text}` }));
     const systemPrompt = `당신은 정중한 대화 중재자입니다. 10초간 정적이 흘렀습니다. 대화 문맥을 파악해 상대방이 부담 없이 대답할 수 있는 질문을 하나 던져 대화를 부드럽게 유도하세요. 절대 도발하지 말고, 50자 이내의 완성된 한 문장으로 대답하세요.`;
     
-    const aiMessage = await getGoogleAIResponse(systemPrompt, chatHistory, 300); // ★ 토큰 상향
+    const aiMessage = await getGoogleAIResponse(systemPrompt, chatHistory, 300); 
     
     if (!aiMessage.includes("불안정하여")) {
       io.to(data.room).emit('receive_message', { sender: 'AI 가이드 💡', text: aiMessage });
@@ -480,21 +514,10 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', () => {
-    if (socket.queueTopic && waitingQueues[socket.queueTopic]) {
-      const targetQueue = socket.queueRole === 'A' ? 'roleA' : socket.queueRole === 'B' ? 'roleB' : 'random';
-      waitingQueues[socket.queueTopic][targetQueue] = waitingQueues[socket.queueTopic][targetQueue].filter(s => s.id !== socket.id);
-      console.log(`📉 [대기열 이탈(연결끊김)] 유저: ${socket.id}`);
-    }
-  });
-
-
-  
   // --- [신규: 다대다 오픈 광장 로직] ---
   socket.on('join_lounge', async (userId) => {
     socket.join('open_lounge');
     
-    // 유저 닉네임 찾기
     let nickname = '익명의 소통러';
     if (userId) {
       try {
@@ -506,13 +529,11 @@ io.on('connection', (socket) => {
 
     socket.emit('init_lounge', openLoungeHistory);
 
-    // 시스템 메시지: 입장 알림
     const joinMsg = { senderId: 'system', nickname: 'System', text: `🎉 ${nickname}님이 입장하셨습니다.`, timestamp: Date.now(), type: 'system' };
     openLoungeHistory.push(joinMsg);
     if (openLoungeHistory.length > 100) openLoungeHistory.shift();
     io.to('open_lounge').emit('new_lounge_message', joinMsg);
 
-    // 현재 광장 인원수 전송
     const count = io.sockets.adapter.rooms.get('open_lounge')?.size || 1;
     io.to('open_lounge').emit('lounge_meta', { userCount: count });
     
@@ -533,21 +554,6 @@ io.on('connection', (socket) => {
     io.to('open_lounge').emit('lounge_meta', { userCount: count });
   });
 
-  // 누군가 앱을 강제 종료했을 때의 퇴장 처리
-  socket.on('disconnect', () => {
-    if (socket.loungeNickname) {
-      const leaveMsg = { senderId: 'system', nickname: 'System', text: `👋 ${socket.loungeNickname}님이 연결을 끊었습니다.`, timestamp: Date.now(), type: 'system' };
-      io.to('open_lounge').emit('new_lounge_message', leaveMsg);
-      const count = (io.sockets.adapter.rooms.get('open_lounge')?.size || 1) - 1;
-      io.to('open_lounge').emit('lounge_meta', { userCount: Math.max(0, count) });
-    }
-    
-    if (socket.queueTopic && waitingQueues[socket.queueTopic]) {
-      const targetQueue = socket.queueRole === 'A' ? 'roleA' : socket.queueRole === 'B' ? 'roleB' : 'random';
-      waitingQueues[socket.queueTopic][targetQueue] = waitingQueues[socket.queueTopic][targetQueue].filter(s => s.id !== socket.id);
-    }
-  });
-
   socket.on('send_lounge_message', async (data) => {
     if (!data.userId || !data.text) return;
     try {
@@ -563,7 +569,23 @@ io.on('connection', (socket) => {
       io.to('open_lounge').emit('new_lounge_message', msg);
     } catch (err) {}
   });
+
+  socket.on('disconnect', () => {
+    // ★ 광장 퇴장 처리 추가
+    if (socket.loungeNickname) {
+      const leaveMsg = { senderId: 'system', nickname: 'System', text: `👋 ${socket.loungeNickname}님이 연결을 끊었습니다.`, timestamp: Date.now(), type: 'system' };
+      io.to('open_lounge').emit('new_lounge_message', leaveMsg);
+      const count = (io.sockets.adapter.rooms.get('open_lounge')?.size || 1) - 1;
+      io.to('open_lounge').emit('lounge_meta', { userCount: Math.max(0, count) });
+    }
+
+    if (socket.queueTopic && waitingQueues[socket.queueTopic]) {
+      const targetQueue = socket.queueRole === 'A' ? 'roleA' : socket.queueRole === 'B' ? 'roleB' : 'random';
+      waitingQueues[socket.queueTopic][targetQueue] = waitingQueues[socket.queueTopic][targetQueue].filter(s => s.id !== socket.id);
+      console.log(`📉 [대기열 이탈(연결끊김)] 유저: ${socket.id}`);
+    }
   });
+});
 
 // ==========================================
 // 서버 타이머: 시간 초과 시 리포트 자동 생성
@@ -591,8 +613,8 @@ setInterval(async () => {
         ? roomData.history.map(msg => `${msg.role === 'user' ? '나' : '상대방'}: ${msg.content}`).join('\n')
         : roomData.history.join('\n');
       
-      // ★ 리포트 생성용 토큰도 800으로 상향 (점수와 한줄평이 잘리는 현상 방지)
-      const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 800); 
+      // API 토큰 최적화를 위해 maxTokens를 300으로 제한
+      const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 300); 
       
       let logicScore = 50, linguisticsScore = 50, empathyScore = 50;
       const logicMatch = reportContent.match(/\[LOGIC:\s*(\d+)\]/i);

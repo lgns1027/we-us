@@ -31,11 +31,13 @@ export default function ChatRoom({
     setInputText('');
   };
 
+  // ★ 변경점: 신고와 함께 차단(block_user) 신호도 서버로 쏘도록 변경
   const handleReportSubmit = () => {
     if (!reportReason) { showModal('경고', '신고 사유를 선택해 주세요.', 'alert'); return; }
-    showModal('사용자 신고', '상대방을 신고하고 대화방을 즉시 나가시겠습니까?', 'confirm', () => {
+    showModal('사용자 신고 및 차단', '상대방을 신고하고 영구 차단하시겠습니까?\n차단된 유저로부터는 쪽지(DM)를 받지 않습니다.', 'confirm', () => {
       socketRef.current?.emit('report_user', { room, reporterId: userId, reason: reportReason });
-      showModal('신고 완료', '신고가 접수되었습니다. 철저히 검토하여 조치하겠습니다.', 'alert');
+      socketRef.current?.emit('block_user', { room, userId }); // 차단 신호 전송
+      showModal('처리 완료', '신고 및 차단이 완료되었습니다.', 'alert');
       setIsReportModalOpen(false);
       setReportReason('');
       forceLeaveRoom();
@@ -83,7 +85,7 @@ export default function ChatRoom({
       {isReportModalOpen && (
         <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-[70] p-6 backdrop-blur-sm">
           <div className="w-full max-w-sm bg-[#0a0a0a] border border-white/10 rounded-[2rem] p-8 shadow-2xl flex flex-col">
-            <h3 className="text-lg font-bold text-red-400 mb-2 flex items-center gap-2 tracking-widest">🚨 사용자 신고</h3>
+            <h3 className="text-lg font-bold text-red-400 mb-2 flex items-center gap-2 tracking-widest">🚨 신고 및 차단</h3>
             <p className="text-xs text-white/50 mb-6 leading-relaxed">건전한 환경을 위해 사유를 선택해 주세요. 즉시 대화가 차단됩니다.</p>
             <div className="space-y-2 mb-8">
               {['욕설 및 비하', '음란성 발언', '광고 및 도배', '기타 사유'].map((reason) => (
@@ -94,7 +96,7 @@ export default function ChatRoom({
             </div>
             <div className="flex gap-3">
               <button onClick={() => setIsReportModalOpen(false)} className="flex-1 py-3.5 bg-white/5 text-white/70 rounded-xl text-xs font-bold tracking-widest">취소</button>
-              <button onClick={handleReportSubmit} className="flex-1 py-3.5 bg-red-900/50 text-red-200 border border-red-800/50 rounded-xl text-xs font-bold tracking-widest">신고 및 나가기</button>
+              <button onClick={handleReportSubmit} className="flex-1 py-3.5 bg-red-900/50 text-red-200 border border-red-800/50 rounded-xl text-xs font-bold tracking-widest">신고 및 차단</button>
             </div>
           </div>
         </div>
@@ -163,7 +165,7 @@ export default function ChatRoom({
             <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
             <span className="font-semibold text-xs text-white/90 truncate">{isSingleMode ? `AI 싱글: ${selectedTopic}` : `${selectedTopic}`}</span>
             <div className="flex items-center gap-1 shrink-0 ml-1">
-              {!isSingleMode && <button onClick={() => showModal('🚨 사용자 신고', '사유를 선택해 주세요. 즉시 대화가 차단됩니다.', 'confirm', () => forceLeaveRoom())} className="bg-red-500/10 text-red-400 text-[10px] px-2 py-0.5 rounded-full font-bold">🚨 신고</button>}
+              {!isSingleMode && <button onClick={() => setIsReportModalOpen(true)} className="bg-red-500/10 text-red-400 text-[10px] px-2 py-0.5 rounded-full font-bold border border-red-500/30">🚨 차단</button>}
               <button onClick={() => showModal('대화방 퇴장', '정말 대화방에서 나가시겠습니까?', 'confirm', () => forceLeaveRoom())} className="bg-white/5 text-white/50 text-[10px] px-2 py-0.5 rounded-full">나가기</button>
             </div>
           </div>
