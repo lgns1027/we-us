@@ -48,14 +48,13 @@ export default function WeUsApp() {
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [reportData, setReportData] = useState<string | null>(null);
-  const [partnerId, setPartnerId] = useState<string | null>(null); // ★ V2 추가: 리포트 창에서 친구 추가할 파트너 ID
+  const [partnerId, setPartnerId] = useState<string | null>(null); 
   
   const [showAd, setShowAd] = useState(false);
   const [adCountdown, setAdCountdown] = useState(3);
   const [isConnecting, setIsConnecting] = useState(false); 
   const [isTyping, setIsTyping] = useState(false); 
 
-  // ★ 커스텀 시스템 모달 (alert, confirm 완전 대체)
   const [sysModal, setSysModal] = useState({ isOpen: false, title: '', desc: '', type: 'alert', onConfirm: () => {} });
   const showModal = (title: string, desc: string, type: 'alert' | 'confirm' = 'alert', onConfirm = () => {}) => {
     setSysModal({ isOpen: true, title, desc, type, onConfirm });
@@ -105,7 +104,6 @@ export default function WeUsApp() {
 
     socketRef.current.on('partner_left', () => {
       if (!stateRefs.current.isAnalyzing && !stateRefs.current.reportData && !stateRefs.current.showAd) {
-        // ★ 투박한 alert 대신 예쁜 우리 앱 전용 모달 띄우기
         showModal('대화 종료', '상대방이 방을 나갔습니다.', 'alert', () => setStep('lobby'));
       }
     });
@@ -125,7 +123,7 @@ export default function WeUsApp() {
       if (data.error) showModal("분석 실패", "대화 내용이 너무 짧아 리포트를 발급할 수 없습니다.", "alert");
       else { 
         setReportData(data.reportText); 
-        setPartnerId(data.partnerId); // 상대방 ID 저장
+        setPartnerId(data.partnerId); 
         if (userId) socketRef.current?.emit('request_my_records', userId); 
       }
     });
@@ -137,7 +135,6 @@ export default function WeUsApp() {
     if (activeTab === 'myRecord' && userId) socketRef.current?.emit('request_my_records', userId);
   }, [activeTab, userId]);
 
-  // ★ 타임오버 시그널을 위해 타이머 로직 수정
   useEffect(() => {
     if (step !== 'chat' || timeLeft <= 0 || isAnalyzing || reportData || showAd) return;
     const timer = setInterval(() => {
@@ -145,13 +142,10 @@ export default function WeUsApp() {
         if (prev <= 1) {
           clearInterval(timer); 
           setIsAnalyzing(true); 
-          
-          // 0초가 되면 2초 동안 대기(이펙트 노출) 후 광고 창 띄우기
           setTimeout(() => {
             setShowAd(true); setAdCountdown(3);      
             socketRef.current?.emit('request_chemistry_report', { room, userId }); 
           }, 2000);
-          
           return 0;
         }
         return prev - 1;
@@ -232,7 +226,7 @@ export default function WeUsApp() {
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/10 blur-[120px] rounded-full pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-900/10 blur-[120px] rounded-full pointer-events-none" />
 
-      {/* ★ 전역 커스텀 시스템 모달 */}
+      {/* 전역 시스템 모달 */}
       {sysModal.isOpen && (
         <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-[100] p-6 backdrop-blur-sm transition-opacity">
           <div className="w-full max-w-sm bg-[#0a0a0a] border border-white/10 rounded-[2rem] p-8 shadow-2xl flex flex-col text-center">
@@ -253,6 +247,7 @@ export default function WeUsApp() {
         </div>
       )}
 
+      {/* ★ 메인 콘텐츠 영역: 하단바와 물리적으로 분리됨 */}
       <main className="flex-1 w-full max-w-lg mx-auto flex flex-col relative z-10 px-4 pt-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         {step === 'lobby' && activeTab === 'lobby' && (
           <LobbyView selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} selectedTopic={selectedTopic} setSelectedTopic={setSelectedTopic} isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} isConnecting={isConnecting} isSingleMode={isSingleMode} handleMatchStart={handleMatchStart} />
@@ -291,13 +286,13 @@ export default function WeUsApp() {
         )}
       </main>
 
-      {/* ★ 하단바: pb-20 으로 대폭 올려서 최하단 클릭 간섭 원천 차단 */}
+      {/* ★ 하단바: 스크롤 영역과 완전히 분리된 하단 고정 블록 (shrink-0 적용) */}
       {step === 'lobby' && (
-        <nav className="shrink-0 w-full max-w-lg mx-auto pb-20 pt-2 flex justify-center z-20 bg-gradient-to-t from-[#050505] to-transparent">
+        <nav className="w-full max-w-lg mx-auto pb-8 pt-4 flex justify-center z-20 bg-[#050505] shrink-0 border-t border-white/5">
           <div className="flex items-center bg-black/80 backdrop-blur-xl border border-white/10 rounded-full p-1 shadow-[0_0_20px_rgba(0,0,0,0.5)]">
-            <button onClick={() => setActiveTab('lobby')} className={`px-6 py-3 rounded-full text-[11px] font-bold tracking-widest transition-all ${activeTab === 'lobby' ? 'bg-white text-black' : 'text-white/40 hover:text-white/80'}`}>LOBBY</button>
-            <button onClick={() => setActiveTab('myRecord')} className={`px-6 py-3 rounded-full text-[11px] font-bold tracking-widest transition-all ${activeTab === 'myRecord' ? 'bg-white text-black' : 'text-white/40 hover:text-white/80'}`}>RECORD</button>
-            <button onClick={() => setActiveTab('profile')} className={`px-6 py-3 rounded-full text-[11px] font-bold tracking-widest transition-all ${activeTab === 'profile' ? 'bg-white text-black' : 'text-white/40 hover:text-white/80'}`}>PROFILE</button>
+            <button onClick={() => setActiveTab('lobby')} className={`px-6 py-3 rounded-full text-[11px] font-bold tracking-widest transition-all ${activeTab === 'lobby' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>LOBBY</button>
+            <button onClick={() => setActiveTab('myRecord')} className={`px-6 py-3 rounded-full text-[11px] font-bold tracking-widest transition-all ${activeTab === 'myRecord' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>RECORD</button>
+            <button onClick={() => setActiveTab('profile')} className={`px-6 py-3 rounded-full text-[11px] font-bold tracking-widest transition-all ${activeTab === 'profile' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>PROFILE</button>
           </div>
         </nav>
       )}
