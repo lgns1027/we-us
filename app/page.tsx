@@ -288,7 +288,7 @@ export default function WeUsApp() {
 
       {/* ★ 하단바: 스크롤 영역과 완전히 분리된 하단 고정 블록 (shrink-0 적용) */}
       {step === 'lobby' && (
-        <nav className="w-full max-w-lg mx-auto pb-8 pt-4 flex justify-center z-20 bg-[#050505] shrink-0 border-t border-white/5">
+        <nav className="w-full max-w-lg mx-auto pb-16 pt-4 flex justify-center z-20 bg-[#050505] shrink-0 border-t border-white/5">
           <div className="flex items-center bg-black/80 backdrop-blur-xl border border-white/10 rounded-full p-1 shadow-[0_0_20px_rgba(0,0,0,0.5)]">
             <button onClick={() => setActiveTab('lobby')} className={`px-6 py-3 rounded-full text-[11px] font-bold tracking-widest transition-all ${activeTab === 'lobby' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>LOBBY</button>
             <button onClick={() => setActiveTab('myRecord')} className={`px-6 py-3 rounded-full text-[11px] font-bold tracking-widest transition-all ${activeTab === 'myRecord' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>RECORD</button>

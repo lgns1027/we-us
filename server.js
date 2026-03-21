@@ -16,7 +16,7 @@ mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log("🍃 MongoDB 연결 성공! 대화 기록이 영구 저장됩니다."))
   .catch(err => console.error("❌ DB 연결 실패 (서버 환경을 확인하세요):", err));
 
-// ★ V2 신규 스키마: 유저 닉네임 및 친구(인맥) 목록 영구 저장용
+// ★ V2: 유저 프로필 및 친구 관리 스키마
 const UserSchema = new mongoose.Schema({
   userId: { type: String, unique: true },
   nickname: { type: String, default: '익명의 소통러' },
@@ -24,6 +24,15 @@ const UserSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 const User = mongoose.model('User', UserSchema);
+
+// ★ V2: 1:1 쪽지(DM) 저장 스키마
+const DMSchema = new mongoose.Schema({
+  senderId: String,
+  receiverId: String,
+  text: String,
+  createdAt: { type: Date, default: Date.now }
+});
+const DM = mongoose.model('DM', DMSchema);
 
 const ReportSchema = new mongoose.Schema({
   roomName: String,
@@ -57,7 +66,7 @@ const activeRooms = {};
 const roomVotes = {};
 
 async function getGoogleAIResponse(systemPrompt, history, maxTokens = 150) {
-  // ★ 수정 포인트 1: 첫 대답 30초 지연 해결을 위해 가장 빠른 flash 모델 최우선 배치
+  // ★ AI 응답 지연 해결 (가장 빠른 모델 최우선)
   const modelsToTry = [
     "gemini-1.5-flash", 
     "gemini-2.5-flash",
@@ -106,7 +115,7 @@ function filterProfanity(text) {
 
 function getPersonaPrompt(topic, isReport = false, partnerRole = '') {
   if (isReport) {
-    // ★ 수정 포인트 2-1: 리포트 길이를 줄이고 팩트폭력 한줄평과 해시태그만 출력하도록 간소화
+    // ★ 리포트 형식 간소화 (점수 도출 최적화)
     const basePrompt = `당신은 냉철하고 객관적인 대화 심판관입니다. 대화 기록을 분석하여 다음 딱 2가지만 구체적으로 작성하세요.
 1. [한줄평]: 대화의 승패, 논리적 허점, 혹은 상대방의 태도에 대한 팩트폭력 한줄평 (50자 이내)
 2. [해시태그]: 대화 성격을 보여주는 요약 키워드 #해시태그 3개`;
@@ -119,7 +128,7 @@ function getPersonaPrompt(topic, isReport = false, partnerRole = '') {
     }
   }
 
-  // ★ 수정 포인트 2-2: "진상손님:" 같이 이름표를 붙여서 도배되는 현상 절대 금지 규칙 추가
+  // ★ AI 이름표 증식 방지 제약 조건
   const baseConstraint = `\n\n[절대 규칙]: 절대 상대방을 비하하거나 모욕적인 도발을 하지 마세요. 예의를 갖추되 역할에 몰입하세요. 대답할 때 당신의 이름표(예: "${partnerRole}:")를 텍스트 맨 앞에 절대 붙이지 마세요. 반드시 1~2문장 이내(최대 50자 내외)로 자연스럽게 마침표로 끝나는 완성된 문장만 출력하세요. 말이 중간에 끊기면 안 됩니다.`;
 
   switch(topic) {
@@ -147,7 +156,6 @@ function tryMatch(topicKey) {
       participants: 2, 
       isGeneratingReport: false, 
       topic: topicKey, 
-      // ★ V2 추가: 매칭 시 상대방의 정보를 확실히 기록해두기 위해 userIds 초기화
       userIds: new Set([user1.userId, user2.userId].filter(Boolean)),
       endTime: Date.now() + (180 * 1000)
     };
@@ -178,9 +186,9 @@ function tryMatch(topicKey) {
 }
 
 io.on('connection', (socket) => {
-
+  
   // ==========================================
-  // ★ V2 신규 추가 구역: 프로필 & 친구 관리 소켓
+  // ★ V2: 프로필 및 인맥(친구), 쪽지(DM) 처리 영역
   // ==========================================
   socket.on('get_profile', async (userId) => {
     try {
@@ -201,7 +209,10 @@ io.on('connection', (socket) => {
         { nickname: data.nickname }, 
         { new: true, upsert: true }
       );
-      socket.emit('receive_profile', { nickname: updatedUser.nickname, friends: [] });
+      // ★ 닉네임 저장 버그 픽스: 변경 후 친구 목록을 정상적으로 다시 가져와서 응답
+      const friendsData = await User.find({ userId: { $in: updatedUser.friends } }).select('userId nickname');
+      socket.emit('receive_profile', { nickname: updatedUser.nickname, friends: friendsData });
+      console.log(`✅ [닉네임 변경 완료] ${data.userId} -> ${data.nickname}`);
     } catch (err) { console.error(err); }
   });
 
@@ -218,10 +229,29 @@ io.on('connection', (socket) => {
       socket.emit('receive_profile', { nickname: updatedUser.nickname, friends: friendsData });
     } catch (err) { console.error(err); }
   });
+
+  socket.on('get_dms', async ({ userId, friendId }) => {
+    try {
+      const dms = await DM.find({
+        $or: [
+          { senderId: userId, receiverId: friendId },
+          { senderId: friendId, receiverId: userId }
+        ]
+      }).sort({ createdAt: 1 });
+      socket.emit('receive_dms', dms);
+    } catch (err) { console.error(err); }
+  });
+
+  socket.on('send_dm', async ({ senderId, receiverId, text }) => {
+    try {
+      const cleanText = filterProfanity(text);
+      const newMsg = await DM.create({ senderId, receiverId, text: cleanText });
+      io.emit('new_dm_arrived', newMsg);
+    } catch (err) { console.error(err); }
+  });
   // ==========================================
 
   socket.on('join_queue', (data) => {
-    // ★ V2 추가: 큐 진입 시 userId 도 함께 전달받아 대기열에 저장 (친구 추가 용도)
     const { topic, role, roleA_name, roleB_name, userId } = data;
     
     if (!waitingQueues[topic]) {
@@ -286,14 +316,12 @@ io.on('connection', (socket) => {
       socket.to(data.room).emit('receive_message', { sender: socket.userAlias, text: cleanText });
     } 
     else if (roomData.type === 'single') {
-      // 순수 내용만 객체 형태로 저장
       roomData.history.push({ role: 'user', content: cleanText }); 
       
       const systemPrompt = getPersonaPrompt(roomData.topic, false, socket.aiPartnerRole);
       let aiReply = await getGoogleAIResponse(systemPrompt, roomData.history.slice(-8), 150); 
       
-      // 이름표 강제 삭제 필터 (AI가 혹시라도 프롬프트를 무시하고 이름표를 출력할 경우 대비)
-      aiReply = aiReply.replace(/^.*?:/, '').trim();
+      aiReply = aiReply.replace(/^.*?:/, '').trim(); // 이름표 강제 삭제 처리
       
       roomData.history.push({ role: 'assistant', content: aiReply }); 
       socket.emit('receive_message', { sender: socket.aiPartnerRole, text: aiReply });
@@ -413,7 +441,7 @@ setInterval(async () => {
       
       const systemPrompt = getPersonaPrompt(roomData.topic, true);
       
-      // ★ 수정 포인트 3: 싱글 모드의 객체 데이터를 문자열로 정상 변환시켜 [object Object] 에러 완벽 차단
+      // ★ [object Object] 에러 완벽 차단 로직 유지
       const conversationText = roomData.type === 'single'
         ? roomData.history.map(msg => `${msg.role === 'user' ? '나' : '상대방'}: ${msg.content}`).join('\n')
         : roomData.history.join('\n');
@@ -433,14 +461,12 @@ setInterval(async () => {
 
       try {
         if (!reportContent.includes("불안정하여")) {
-          // ★ V2 연동: 리포트 데이터(Report) 저장 및 유저가 나중에 파트너 아이디를 추적할 수 있도록 userIds 명확히 저장
           await Report.create({
             roomName: room, 
             userIds: Array.from(roomData.userIds), 
             type: roomData.type,
             topic: roomData.topic, 
             participants: roomData.participants, 
-            // ★ 싱글 모드 DB 저장 시 객체 데이터 에러 방지 처리 추가
             fullLog: roomData.type === 'single' ? roomData.history.map(m => m.content) : roomData.history,
             aiReport: cleanReportText, 
             stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore }
@@ -454,7 +480,7 @@ setInterval(async () => {
       if (reportContent.includes("불안정하여")) {
         io.to(room).emit('receive_report', { error: true });
       } else {
-        io.to(room).emit('receive_report', { reportText: cleanReportText, partnerId: Array.from(roomData.userIds).find(id => id) }); // 파트너 ID 프론트로 반환 준비
+        io.to(room).emit('receive_report', { reportText: cleanReportText, partnerId: Array.from(roomData.userIds).find(id => id !== null) });
       }
     }
   }
