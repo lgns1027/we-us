@@ -10,13 +10,15 @@ const LOBBY_CATEGORIES = [
 export default function LobbyView({
   selectedCategory, setSelectedCategory, selectedTopic, setSelectedTopic,
   isDropdownOpen, setIsDropdownOpen, isConnecting, isSingleMode, handleMatchStart,
-  setStep // ★ 추가: 광장으로 넘어가기 위해 setStep을 Props로 받음
+  setStep
 }: any) {
   const currentOptions = LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.options || [];
 
   return (
     <div className="w-full flex flex-col justify-center space-y-6 flex-1 min-h-[500px]">
-      <div className="text-center space-y-1 mb-1 shrink-0">
+      
+      {/* ★ 변경점: mb-1 을 mb-5 로 늘려서 아래 카테고리(일상라운지 등)와의 간격을 살짝 띄움 */}
+      <div className="text-center space-y-1 mb-5 shrink-0 mt-2">
         <h1 className="text-3xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-500 drop-shadow-lg">
           WE US.
         </h1>
@@ -76,12 +78,11 @@ export default function LobbyView({
         </div>
 
         <div className="space-y-2 pt-1">
-          {/* ★ 변경점: 오픈 광장 버튼 추가 (기존 AI 연습 버튼 삭제) */}
           <button 
             onClick={() => setStep && setStep('lounge')} 
             className="w-full bg-gradient-to-r from-blue-900/40 to-indigo-900/40 border border-blue-500/30 text-blue-200 hover:from-blue-900/60 hover:to-indigo-900/60 font-extrabold tracking-wide py-3.5 rounded-xl transition-all flex justify-center items-center gap-2 text-[14px] shadow-[0_0_15px_rgba(59,130,246,0.15)]"
           >
-            <span className="text-lg">🌍</span> 다대다 오픈 광장 입장하기
+            <span className="text-lg">🌍</span> 위어스 오픈 광장 입장하기
           </button>
           
           <button 
@@ -89,7 +90,7 @@ export default function LobbyView({
             onClick={() => handleMatchStart(false)}
             className="w-full bg-white text-black font-extrabold tracking-wide py-3.5 rounded-xl hover:bg-gray-200 transition-all shadow-lg flex justify-center items-center gap-2 text-[14px]"
           >
-            {isConnecting && !isSingleMode ? <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin"/> : null}
+            {isConnecting ? <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin"/> : null}
             익명 매칭 시작하기
           </button>
         </div>

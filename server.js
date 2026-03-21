@@ -489,15 +489,63 @@ io.on('connection', (socket) => {
   });
 
 
+  
   // --- [신규: 다대다 오픈 광장 로직] ---
-  socket.on('join_lounge', () => {
+  socket.on('join_lounge', async (userId) => {
     socket.join('open_lounge');
+    
+    // 유저 닉네임 찾기
+    let nickname = '익명의 소통러';
+    if (userId) {
+      try {
+        const user = await User.findOne({ userId });
+        if (user) nickname = user.nickname;
+      } catch(e) {}
+    }
+    socket.loungeNickname = nickname;
+
     socket.emit('init_lounge', openLoungeHistory);
-    console.log(`🌍 [광장 입장] ${socket.id}`);
+
+    // 시스템 메시지: 입장 알림
+    const joinMsg = { senderId: 'system', nickname: 'System', text: `🎉 ${nickname}님이 입장하셨습니다.`, timestamp: Date.now(), type: 'system' };
+    openLoungeHistory.push(joinMsg);
+    if (openLoungeHistory.length > 100) openLoungeHistory.shift();
+    io.to('open_lounge').emit('new_lounge_message', joinMsg);
+
+    // 현재 광장 인원수 전송
+    const count = io.sockets.adapter.rooms.get('open_lounge')?.size || 1;
+    io.to('open_lounge').emit('lounge_meta', { userCount: count });
+    
+    console.log(`🌍 [광장 입장] ${nickname} (현재 ${count}명)`);
   });
 
   socket.on('leave_lounge', () => {
     socket.leave('open_lounge');
+    
+    if (socket.loungeNickname) {
+      const leaveMsg = { senderId: 'system', nickname: 'System', text: `👋 ${socket.loungeNickname}님이 퇴장하셨습니다.`, timestamp: Date.now(), type: 'system' };
+      openLoungeHistory.push(leaveMsg);
+      if (openLoungeHistory.length > 100) openLoungeHistory.shift();
+      io.to('open_lounge').emit('new_lounge_message', leaveMsg);
+    }
+    
+    const count = io.sockets.adapter.rooms.get('open_lounge')?.size || 0;
+    io.to('open_lounge').emit('lounge_meta', { userCount: count });
+  });
+
+  // 누군가 앱을 강제 종료했을 때의 퇴장 처리
+  socket.on('disconnect', () => {
+    if (socket.loungeNickname) {
+      const leaveMsg = { senderId: 'system', nickname: 'System', text: `👋 ${socket.loungeNickname}님이 연결을 끊었습니다.`, timestamp: Date.now(), type: 'system' };
+      io.to('open_lounge').emit('new_lounge_message', leaveMsg);
+      const count = (io.sockets.adapter.rooms.get('open_lounge')?.size || 1) - 1;
+      io.to('open_lounge').emit('lounge_meta', { userCount: Math.max(0, count) });
+    }
+    
+    if (socket.queueTopic && waitingQueues[socket.queueTopic]) {
+      const targetQueue = socket.queueRole === 'A' ? 'roleA' : socket.queueRole === 'B' ? 'roleB' : 'random';
+      waitingQueues[socket.queueTopic][targetQueue] = waitingQueues[socket.queueTopic][targetQueue].filter(s => s.id !== socket.id);
+    }
   });
 
   socket.on('send_lounge_message', async (data) => {
@@ -507,18 +555,15 @@ io.on('connection', (socket) => {
       const nickname = user ? user.nickname : '익명의 소통러';
       const cleanText = filterProfanity(data.text);
       
-      const msg = { senderId: data.userId, nickname: nickname, text: cleanText, timestamp: Date.now() };
+      const msg = { senderId: data.userId, nickname: nickname, text: cleanText, timestamp: Date.now(), type: 'user' };
       
       openLoungeHistory.push(msg);
-      // 서버 메모리 관리를 위해 최근 100개 대화만 유지
       if (openLoungeHistory.length > 100) openLoungeHistory.shift();
       
       io.to('open_lounge').emit('new_lounge_message', msg);
-    } catch (err) {
-      console.error("❌ [광장 메시지 에러]:", err);
-    }
+    } catch (err) {}
   });
-});
+  });
 
 // ==========================================
 // 서버 타이머: 시간 초과 시 리포트 자동 생성
