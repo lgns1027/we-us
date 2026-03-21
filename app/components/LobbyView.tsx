@@ -16,14 +16,12 @@ const TOPICS: Record<string, string[]> = {
 
 export default function LobbyView({ 
   selectedCategory, setSelectedCategory, selectedTopic, setSelectedTopic, 
-  isDropdownOpen, setIsDropdownOpen, isConnecting, isSingleMode, handleMatchStart 
+  isDropdownOpen, setIsDropdownOpen, isConnecting, isSingleMode, handleMatchStart, setStep // setStep 추가
 }: any) {
   
   return (
     <div className="flex-1 flex flex-col justify-center items-center py-8 w-full max-w-sm mx-auto">
       
-      {/* 1. 메인 타이틀 영역 (간격 벌림) */}
-      {/* ★ 변경점: mb-12 를 적용하여 아래 카테고리 영역과의 간격을 시원하게 벌렸습니다. */}
       <div className="text-center mb-12">
         <h1 className="text-5xl font-black mb-3 tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-white to-white/50 drop-shadow-[0_0_20px_rgba(255,255,255,0.2)]">
           WE US
@@ -33,7 +31,6 @@ export default function LobbyView({
         </p>
       </div>
 
-      {/* 2. 카테고리 선택 영역 */}
       <div className="w-full bg-[#080808]/90 backdrop-blur-2xl border border-white/5 rounded-[2rem] p-6 shadow-2xl relative mb-6">
         <h2 className="text-[10px] font-bold tracking-[0.2em] text-white/40 mb-4 uppercase text-center">
           어떤 대화를 나눌까요?
@@ -56,7 +53,6 @@ export default function LobbyView({
           ))}
         </div>
 
-        {/* 3. 세부 주제 선택 (드롭다운) */}
         <div className="relative">
           <button 
             onClick={() => setIsDropdownOpen(!isDropdownOpen)}
@@ -84,7 +80,14 @@ export default function LobbyView({
         </div>
       </div>
 
-      {/* 4. 매칭 시작 버튼 영역 */}
+      {/* ★ 신규: 광장 입장 버튼 */}
+      <button 
+        onClick={() => setStep('lounge')} 
+        className="w-full mb-4 py-4 bg-gradient-to-r from-blue-900/40 to-indigo-900/40 border border-blue-500/30 text-blue-200 rounded-[1.5rem] font-bold text-sm tracking-widest transition-all shadow-[0_0_20px_rgba(59,130,246,0.15)] hover:from-blue-900/60 hover:to-indigo-900/60"
+      >
+        🌍 다대다 오픈 광장 입장하기
+      </button>
+
       <div className="w-full flex gap-3">
         <button 
           onClick={() => handleMatchStart(true)} 

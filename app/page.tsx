@@ -6,6 +6,7 @@ import LobbyView from './components/LobbyView';
 import RecordView from './components/RecordView';
 import ChatRoom from './components/ChatRoom';
 import ProfileView from './components/ProfileView';
+import LoungeRoom from './components/LoungeRoom'; // ★ 신규 컴포넌트 임포트
 
 const SERVER_URL = 'https://we-us-backend.onrender.com';
 
@@ -28,7 +29,8 @@ export default function WeUsApp() {
   const [userId, setUserId] = useState<string>('');
   const [myReports, setMyReports] = useState<any[]>([]); 
 
-  const [step, setStep] = useState<'lobby' | 'role_select' | 'waiting' | 'chat'>('lobby');
+  // ★ step에 'lounge' 상태 추가
+  const [step, setStep] = useState<'lobby' | 'role_select' | 'waiting' | 'chat' | 'lounge'>('lobby');
   const [timeLeft, setTimeLeft] = useState(180); 
   const [messages, setMessages] = useState<{ sender: string; text: string }[]>([]);
   const [room, setRoom] = useState('');
@@ -77,6 +79,17 @@ export default function WeUsApp() {
     }
     setUserId(storedId);
   }, []);
+
+  useEffect(() => {
+    const handlePushToken = (e: any) => {
+      const token = e.detail;
+      if (userId && token && socketRef.current) {
+        socketRef.current.emit('register_push_token', { userId, token });
+      }
+    };
+    window.addEventListener('expoPushToken', handlePushToken);
+    return () => window.removeEventListener('expoPushToken', handlePushToken);
+  }, [userId]);
 
   useEffect(() => {
     if (!userId) return; 
@@ -139,15 +152,10 @@ export default function WeUsApp() {
         socketRef.current.connect();
       }
     };
-
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
-        handleAppActive();
-      }
+      if (document.visibilityState === 'visible') handleAppActive();
     });
-    
     window.addEventListener('appStateActive', handleAppActive);
-
     return () => {
       document.removeEventListener('visibilitychange', handleAppActive);
       window.removeEventListener('appStateActive', handleAppActive);
@@ -274,13 +282,18 @@ export default function WeUsApp() {
 
       <main className="flex-1 w-full max-w-lg mx-auto flex flex-col justify-center my-auto relative z-10 px-4 pt-4 pb-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         {step === 'lobby' && activeTab === 'lobby' && (
-          <LobbyView selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} selectedTopic={selectedTopic} setSelectedTopic={setSelectedTopic} isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} isConnecting={isConnecting} isSingleMode={isSingleMode} handleMatchStart={handleMatchStart} />
+          <LobbyView selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} selectedTopic={selectedTopic} setSelectedTopic={setSelectedTopic} isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} isConnecting={isConnecting} isSingleMode={isSingleMode} handleMatchStart={handleMatchStart} setStep={setStep} />
         )}
         {step === 'lobby' && activeTab === 'myRecord' && (
           <RecordView userId={userId} myReports={myReports} totalPlayHours={totalPlayHours} personaTitle={pTitle} personaDesc={pDesc} tier={tier} avgLogic={avgLogic} avgLinguistics={avgLinguistics} avgEmpathy={avgEmpathy} />
         )}
         {step === 'lobby' && activeTab === 'profile' && (
           <ProfileView userId={userId} tier={tier} personaTitle={pTitle} socketRef={socketRef} />
+        )}
+
+        {/* ★ 신규: 광장 컴포넌트 렌더링 */}
+        {step === 'lounge' && (
+          <LoungeRoom socketRef={socketRef} userId={userId} setStep={setStep} />
         )}
 
         {step === 'role_select' && ROLE_MAP[selectedTopic] && (
@@ -310,6 +323,7 @@ export default function WeUsApp() {
         )}
       </main>
 
+      {/* 하단바는 채팅이나 광장이 아닐 때만 표시 */}
       {step === 'lobby' && (
         <nav className="w-full max-w-lg mx-auto pb-16 pt-4 flex justify-center z-20 bg-[#050505] shrink-0 border-t border-white/5">
           <div className="flex items-center bg-black/80 backdrop-blur-xl border border-white/10 rounded-full p-1 shadow-[0_0_20px_rgba(0,0,0,0.5)]">

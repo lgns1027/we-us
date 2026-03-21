@@ -76,6 +76,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const waitingQueues = {}; 
 const activeRooms = {};   
 const roomVotes = {};
+const openLoungeHistory = []; // ★ 신규: 광장 대화 내역 저장 (최대 100개 유지)
 
 // ★ AI 답변 끊김 방지를 위해 maxTokens 기본값을 300에서 800으로 상향
 async function getGoogleAIResponse(systemPrompt, history, maxTokens = 300) {
@@ -484,6 +485,37 @@ io.on('connection', (socket) => {
       const targetQueue = socket.queueRole === 'A' ? 'roleA' : socket.queueRole === 'B' ? 'roleB' : 'random';
       waitingQueues[socket.queueTopic][targetQueue] = waitingQueues[socket.queueTopic][targetQueue].filter(s => s.id !== socket.id);
       console.log(`📉 [대기열 이탈(연결끊김)] 유저: ${socket.id}`);
+    }
+  });
+
+
+  // --- [신규: 다대다 오픈 광장 로직] ---
+  socket.on('join_lounge', () => {
+    socket.join('open_lounge');
+    socket.emit('init_lounge', openLoungeHistory);
+    console.log(`🌍 [광장 입장] ${socket.id}`);
+  });
+
+  socket.on('leave_lounge', () => {
+    socket.leave('open_lounge');
+  });
+
+  socket.on('send_lounge_message', async (data) => {
+    if (!data.userId || !data.text) return;
+    try {
+      const user = await User.findOne({ userId: data.userId });
+      const nickname = user ? user.nickname : '익명의 소통러';
+      const cleanText = filterProfanity(data.text);
+      
+      const msg = { senderId: data.userId, nickname: nickname, text: cleanText, timestamp: Date.now() };
+      
+      openLoungeHistory.push(msg);
+      // 서버 메모리 관리를 위해 최근 100개 대화만 유지
+      if (openLoungeHistory.length > 100) openLoungeHistory.shift();
+      
+      io.to('open_lounge').emit('new_lounge_message', msg);
+    } catch (err) {
+      console.error("❌ [광장 메시지 에러]:", err);
     }
   });
 });
