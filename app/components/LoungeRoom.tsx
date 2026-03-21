@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-export default function LoungeRoom({ socketRef, userId, setStep }: any) {
+// ★ tier 프롭스 수신
+export default function LoungeRoom({ socketRef, userId, setStep, tier }: any) {
   const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
   const [userCount, setUserCount] = useState(1);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // 광장 입장 시 내 유저 ID를 서버로 전송 (닉네임 조회를 위함)
-    socketRef.current?.emit('join_lounge', userId);
+    // ★ 광장 입장 시 서버로 userId와 함께 자신의 tier를 전송
+    socketRef.current?.emit('join_lounge', { userId, tier });
     
     socketRef.current?.on('init_lounge', (history: any[]) => {
       setMessages(history);
@@ -18,7 +19,6 @@ export default function LoungeRoom({ socketRef, userId, setStep }: any) {
       setMessages(prev => [...prev, msg]);
     });
 
-    // 접속자 수 업데이트 수신
     socketRef.current?.on('lounge_meta', (data: any) => {
       setUserCount(data.userCount);
     });
@@ -29,7 +29,7 @@ export default function LoungeRoom({ socketRef, userId, setStep }: any) {
       socketRef.current?.off('new_lounge_message');
       socketRef.current?.off('lounge_meta');
     };
-  }, [socketRef, userId]);
+  }, [socketRef, userId, tier]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -41,7 +41,8 @@ export default function LoungeRoom({ socketRef, userId, setStep }: any) {
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim()) return;
-    socketRef.current?.emit('send_lounge_message', { userId, text: inputText });
+    // ★ 메시지 보낼 때도 자신의 tier 정보를 같이 쏘기
+    socketRef.current?.emit('send_lounge_message', { userId, text: inputText, tier });
     setInputText('');
   };
 
@@ -52,7 +53,6 @@ export default function LoungeRoom({ socketRef, userId, setStep }: any) {
         <div className="flex items-center gap-2">
           <span className="text-xl">🌍</span>
           <span className="font-bold text-white tracking-widest text-[13px]">위어스 오픈광장</span>
-          {/* 접속자 수 라이브 뱃지 */}
           <span className="text-[10px] bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 px-2 py-0.5 rounded-full ml-1 font-bold flex items-center gap-1">
             <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></div>
             {userCount}명 접속중
@@ -63,7 +63,7 @@ export default function LoungeRoom({ socketRef, userId, setStep }: any) {
         </button>
       </div>
 
-      {/* 고정 공지사항 (Sticky Notice) */}
+      {/* 고정 공지사항 */}
       <div className="bg-blue-900/20 border-b border-blue-500/10 p-3 shrink-0 flex items-start gap-2">
         <span className="text-blue-400 text-[13px] mt-0.5">📢</span>
         <p className="text-[10px] text-blue-200/70 leading-relaxed font-medium tracking-wide">
@@ -77,7 +77,6 @@ export default function LoungeRoom({ socketRef, userId, setStep }: any) {
           <div className="h-full flex flex-col items-center justify-center text-white/30 text-[11px] tracking-widest">광장에 첫 메시지를 남겨보세요!</div>
         ) : (
           messages.map((msg, idx) => {
-            // 시스템 메시지 (입장/퇴장) 렌더링
             if (msg.type === 'system') {
               return (
                 <div key={idx} className="flex justify-center my-3">
@@ -88,11 +87,20 @@ export default function LoungeRoom({ socketRef, userId, setStep }: any) {
               );
             }
 
-            // 일반 유저 메시지 렌더링
             const isMe = msg.senderId === userId;
             return (
               <div key={idx} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                {!isMe && <span className="text-[10px] text-white/40 mb-1 ml-1 font-bold">{msg.nickname}</span>}
+                {/* ★ 닉네임과 티어 뱃지 렌더링 영역 */}
+                {!isMe && (
+                  <div className="flex items-center gap-1.5 mb-1 ml-1">
+                    <span className="text-[10px] text-white/40 font-bold">{msg.nickname}</span>
+                    {msg.tier && msg.tier !== 'Unranked' && (
+                      <span className="text-[8px] font-black border border-emerald-500/30 text-emerald-300 px-1.5 py-0.5 rounded-full bg-emerald-500/10">
+                        {msg.tier}
+                      </span>
+                    )}
+                  </div>
+                )}
                 <div className={`max-w-[85%] p-3.5 rounded-2xl text-[13px] leading-relaxed break-words ${isMe ? 'bg-blue-600/20 border border-blue-500/30 text-blue-100 rounded-tr-sm' : 'bg-white/10 text-white rounded-tl-sm'}`}>
                   {msg.text}
                 </div>

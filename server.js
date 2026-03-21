@@ -79,9 +79,9 @@ const activeRooms = {};
 const roomVotes = {};
 const openLoungeHistory = []; // ★ 신규: 광장 대화 내역 저장 (최대 100개 유지)
 
-// ★ AI 답변 끊김 방지를 위해 maxTokens를 300으로 설정
+// ★ AI 답변 끊김 방지를 위해 maxTokens 기본값을 300에서 800으로 상향
 async function getGoogleAIResponse(systemPrompt, history, maxTokens = 300) {
-  // ★ 대표님 지시사항: 12b -> 27b -> 4b 순서 유지
+  // ★ 대표님 절대 지시사항: Gemini 임의 변경 금지. 오직 Gemma 3 모델 3종만 순차 사용
   const modelsToTry = [
     "gemma-3-12b",
     "gemma-3-27b",
@@ -514,10 +514,14 @@ io.on('connection', (socket) => {
     }
   });
 
-  // --- [신규: 다대다 오픈 광장 로직] ---
-  socket.on('join_lounge', async (userId) => {
+  // ★ 변경점: 프론트에서 넘어온 tier 정보를 받아서 입장/메시지 객체에 포함시킴
+  socket.on('join_lounge', async (data) => {
     socket.join('open_lounge');
     
+    // data 객체에서 꺼내 쓰거나, 단순히 문자열 userId만 넘어왔을 때 방어
+    const userId = data?.userId || data;
+    const tier = data?.tier || 'Unranked';
+
     let nickname = '익명의 소통러';
     if (userId) {
       try {
@@ -529,7 +533,8 @@ io.on('connection', (socket) => {
 
     socket.emit('init_lounge', openLoungeHistory);
 
-    const joinMsg = { senderId: 'system', nickname: 'System', text: `🎉 ${nickname}님이 입장하셨습니다.`, timestamp: Date.now(), type: 'system' };
+    const tierText = tier !== 'Unranked' ? ` [${tier}]` : '';
+    const joinMsg = { senderId: 'system', nickname: 'System', text: `🎉 ${nickname}${tierText}님이 입장하셨습니다.`, timestamp: Date.now(), type: 'system' };
     openLoungeHistory.push(joinMsg);
     if (openLoungeHistory.length > 100) openLoungeHistory.shift();
     io.to('open_lounge').emit('new_lounge_message', joinMsg);
@@ -554,6 +559,7 @@ io.on('connection', (socket) => {
     io.to('open_lounge').emit('lounge_meta', { userCount: count });
   });
 
+  // ★ 변경점: 메시지 발송 시 tier 정보 저장
   socket.on('send_lounge_message', async (data) => {
     if (!data.userId || !data.text) return;
     try {
@@ -561,7 +567,14 @@ io.on('connection', (socket) => {
       const nickname = user ? user.nickname : '익명의 소통러';
       const cleanText = filterProfanity(data.text);
       
-      const msg = { senderId: data.userId, nickname: nickname, text: cleanText, timestamp: Date.now(), type: 'user' };
+      const msg = { 
+        senderId: data.userId, 
+        nickname: nickname, 
+        text: cleanText, 
+        timestamp: Date.now(), 
+        type: 'user',
+        tier: data.tier || 'Unranked'
+      };
       
       openLoungeHistory.push(msg);
       if (openLoungeHistory.length > 100) openLoungeHistory.shift();
