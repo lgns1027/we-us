@@ -209,15 +209,21 @@ io.on('connection', (socket) => {
   socket.on('update_nickname', async (data) => {
     try {
       if (!data.userId || !data.nickname) return;
-      const updatedUser = await User.findOneAndUpdate(
-        { userId: data.userId }, 
-        { nickname: data.nickname }, 
-        { new: true, upsert: true }
-      );
       
-      const friendsData = await User.find({ userId: { $in: updatedUser.friends } }).select('userId nickname');
-      socket.emit('receive_profile', { nickname: updatedUser.nickname, friends: friendsData });
-      console.log(`✅ [닉네임 변경 완료] ${data.userId} -> ${data.nickname}`);
+      // ★ 픽스: findOneAndUpdate 대신 findOne 후 save 방식으로 변경하여 확실하게 저장
+      let user = await User.findOne({ userId: data.userId });
+      if (!user) {
+        user = new User({ userId: data.userId, nickname: data.nickname });
+      } else {
+        user.nickname = data.nickname;
+      }
+      await user.save();
+
+      const friendsData = await User.find({ userId: { $in: user.friends } }).select('userId nickname');
+      
+      // 저장 완료 후 프론트에 즉시 다시 쏴주기
+      socket.emit('receive_profile', { nickname: user.nickname, friends: friendsData });
+      console.log(`✅ [닉네임 변경 완료] ${data.userId} -> ${user.nickname}`);
     } catch (err) {
       console.error("❌ [닉네임 변경 에러]:", err);
     }
