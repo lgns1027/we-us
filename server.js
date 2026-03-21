@@ -5,6 +5,9 @@ const { Server } = require('socket.io');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const mongoose = require('mongoose');
 
+// ★ 푸시 알림 발송을 위한 fetch 추가
+const fetch = require('node-fetch');
+
 const app = express();
 const server = http.createServer(app);
 
@@ -25,6 +28,7 @@ const UserSchema = new mongoose.Schema({
   userId: { type: String, unique: true },
   nickname: { type: String, default: '익명의 소통러' },
   friends: [{ type: String }], 
+  pushToken: { type: String, default: '' }, // ★ 푸시 토큰 저장 필드 추가
   createdAt: { type: Date, default: Date.now }
 });
 const User = mongoose.model('User', UserSchema);
@@ -73,12 +77,13 @@ const waitingQueues = {};
 const activeRooms = {};   
 const roomVotes = {};
 
-async function getGoogleAIResponse(systemPrompt, history, maxTokens = 150) {
-  // ★ 첫 대답 30초 지연 해결을 위해 가장 빠른 flash 모델 최우선 배치
+// ★ AI 답변 끊김 방지를 위해 maxTokens 기본값을 300에서 800으로 상향
+async function getGoogleAIResponse(systemPrompt, history, maxTokens = 300) {
+  // ★ 대표님 절대 지시사항: Gemini 임의 변경 금지. 오직 Gemma 3 모델 3종만 순차 사용
   const modelsToTry = [
-    "gemini-1.5-flash", 
-    "gemini-2.5-flash",
-    "gemini-1.5-pro"
+    "gemma-3-27b",
+    "gemma-3-12b",
+    "gemma-3-4b"
   ];
 
   const contents = history.map((msg, index) => {
@@ -86,16 +91,16 @@ async function getGoogleAIResponse(systemPrompt, history, maxTokens = 150) {
     if (index === 0 && msg.role !== 'assistant') {
       text = `[시스템 지시사항: ${systemPrompt}]\n\n사용자 메시지: ` + text;
     }
-    return {
-      role: msg.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: text }]
+    return { 
+      role: msg.role === 'assistant' ? 'model' : 'user', 
+      parts: [{ text: text }] 
     };
   });
 
   for (const modelName of modelsToTry) {
     try {
       const model = genAI.getGenerativeModel({ 
-        model: modelName,
+        model: modelName, 
         generationConfig: { maxOutputTokens: maxTokens } 
       });
       const result = await model.generateContent({ contents });
@@ -104,8 +109,8 @@ async function getGoogleAIResponse(systemPrompt, history, maxTokens = 150) {
       if (responseText && responseText.trim()) {
         return responseText.trim();
       }
-    } catch (error) {
-      console.error(`🚨 [AI 오류] ${modelName} 통신 실패 - 사유: ${error.message}`);
+    } catch (error) { 
+      console.error(`🚨 [AI 오류] ${modelName} 통신 실패:`, error.message); 
     }
   }
   return "네트워크가 불안정하여 AI가 답변을 고민하고 있습니다.";
@@ -192,6 +197,17 @@ function tryMatch(topicKey) {
 
 io.on('connection', (socket) => {
 
+  // ★ 푸시 토큰 등록 소켓 (앱에서 보낸 토큰을 DB에 저장)
+  socket.on('register_push_token', async ({ userId, token }) => {
+    try {
+      if (!userId || !token) return;
+      await User.findOneAndUpdate({ userId }, { pushToken: token }, { upsert: true });
+      console.log(`📡 [푸시 토큰 등록 완료] ${userId}`);
+    } catch (err) {
+      console.error("❌ [푸시 토큰 등록 에러]:", err);
+    }
+  });
+
   // --- [V2: 프로필 & 친구 관리] ---
   socket.on('get_profile', async (userId) => {
     try {
@@ -268,6 +284,30 @@ io.on('connection', (socket) => {
       
       // 방 전체가 아닌 글로벌로 쏴서, 연결된 대상이 있다면 받도록 처리
       io.emit('new_dm_arrived', newMsg);
+
+      // ★ 오프라인 상대방에게 푸시 알림 발송 (Expo Push API 사용)
+      const receiver = await User.findOne({ userId: receiverId });
+      const sender = await User.findOne({ userId: senderId });
+
+      if (receiver && receiver.pushToken) {
+        const senderName = sender ? sender.nickname : '익명';
+        
+        await fetch('https://exp.host/--/api/v2/push/send', {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            to: receiver.pushToken,
+            sound: 'default',
+            title: `💬 WE US - ${senderName}님의 쪽지`,
+            body: cleanText,
+            data: { screen: 'profile', senderId: senderId }, // 폰 터치 시 인자값 전달용
+          }),
+        });
+        console.log(`✉️ [푸시 발송 완료] ${senderName} -> ${receiver.nickname}`);
+      }
     } catch (err) {
       console.error("❌ [DM 전송 에러]:", err);
     }
@@ -342,7 +382,7 @@ io.on('connection', (socket) => {
       roomData.history.push({ role: 'user', content: cleanText }); 
       
       const systemPrompt = getPersonaPrompt(roomData.topic, false, socket.aiPartnerRole);
-      let aiReply = await getGoogleAIResponse(systemPrompt, roomData.history.slice(-8), 150); 
+      let aiReply = await getGoogleAIResponse(systemPrompt, roomData.history.slice(-8), 800); // ★ 토큰 상향
       
       // 이름표 강제 삭제 필터
       aiReply = aiReply.replace(/^.*?:/, '').trim();
@@ -372,7 +412,7 @@ io.on('connection', (socket) => {
     const chatHistory = data.history.slice(-5).map(msg => ({ role: 'user', content: `${msg.sender}: ${msg.text}` }));
     const systemPrompt = `당신은 정중한 대화 중재자입니다. 10초간 정적이 흘렀습니다. 대화 문맥을 파악해 상대방이 부담 없이 대답할 수 있는 질문을 하나 던져 대화를 부드럽게 유도하세요. 절대 도발하지 말고, 50자 이내의 완성된 한 문장으로 대답하세요.`;
     
-    const aiMessage = await getGoogleAIResponse(systemPrompt, chatHistory, 100);
+    const aiMessage = await getGoogleAIResponse(systemPrompt, chatHistory, 300); // ★ 토큰 상향
     
     if (!aiMessage.includes("불안정하여")) {
       io.to(data.room).emit('receive_message', { sender: 'AI 가이드 💡', text: aiMessage });
@@ -474,8 +514,8 @@ setInterval(async () => {
         ? roomData.history.map(msg => `${msg.role === 'user' ? '나' : '상대방'}: ${msg.content}`).join('\n')
         : roomData.history.join('\n');
       
-      // API 토큰 낭비를 막기 위해 maxTokens를 150으로 제한
-      const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 150); 
+      // ★ 리포트 생성용 토큰도 800으로 상향 (점수와 한줄평이 잘리는 현상 방지)
+      const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 800); 
       
       let logicScore = 50, linguisticsScore = 50, empathyScore = 50;
       const logicMatch = reportContent.match(/\[LOGIC:\s*(\d+)\]/i);
