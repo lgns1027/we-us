@@ -48,7 +48,7 @@ export default function WeUsApp() {
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [reportData, setReportData] = useState<string | null>(null);
-  const [reportStats, setReportStats] = useState<any>(null); // ★ 3스탯 전달용 추가
+  const [reportStats, setReportStats] = useState<any>(null);
   const [partnerId, setPartnerId] = useState<string | null>(null); 
   
   const [showAd, setShowAd] = useState(false);
@@ -124,7 +124,7 @@ export default function WeUsApp() {
       if (data.error) showModal("분석 실패", "대화 내용이 너무 짧아 리포트를 발급할 수 없습니다.", "alert");
       else { 
         setReportData(data.reportText); 
-        setReportStats(data.stats); // ★ 3스탯 수신
+        setReportStats(data.stats);
         setPartnerId(data.partnerId); 
         if (userId) socketRef.current?.emit('request_my_records', userId); 
       }
@@ -132,6 +132,27 @@ export default function WeUsApp() {
 
     return () => { socketRef.current?.disconnect(); };
   }, [userId]); 
+
+  useEffect(() => {
+    const handleAppActive = () => {
+      if (socketRef.current && !socketRef.current.connected) {
+        socketRef.current.connect();
+      }
+    };
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        handleAppActive();
+      }
+    });
+    
+    window.addEventListener('appStateActive', handleAppActive);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleAppActive);
+      window.removeEventListener('appStateActive', handleAppActive);
+    };
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'myRecord' && userId) socketRef.current?.emit('request_my_records', userId);
@@ -145,6 +166,9 @@ export default function WeUsApp() {
           clearInterval(timer); 
           setIsAnalyzing(true); 
           setTimeout(() => {
+            if (typeof window !== 'undefined' && (window as any).ReactNativeWebView) {
+              (window as any).ReactNativeWebView.postMessage('SHOW_ADMOB_AD');
+            }
             setShowAd(true); setAdCountdown(3);      
             socketRef.current?.emit('request_chemistry_report', { room, userId }); 
           }, 2000);
@@ -228,7 +252,6 @@ export default function WeUsApp() {
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/10 blur-[120px] rounded-full pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-900/10 blur-[120px] rounded-full pointer-events-none" />
 
-      {/* 전역 시스템 모달 */}
       {sysModal.isOpen && (
         <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-[100] p-6 backdrop-blur-sm transition-opacity">
           <div className="w-full max-w-sm bg-[#0a0a0a] border border-white/10 rounded-[2rem] p-8 shadow-2xl flex flex-col text-center">
@@ -249,8 +272,7 @@ export default function WeUsApp() {
         </div>
       )}
 
-      {/* ★ 변경점: justify-center my-auto 로 수직 중앙 정렬 처리 */}
-      <main className="flex-1 w-full max-w-lg mx-auto flex flex-col justify-center my-auto relative z-10 px-4 pt-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+      <main className="flex-1 w-full max-w-lg mx-auto flex flex-col justify-center my-auto relative z-10 px-4 pt-4 pb-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         {step === 'lobby' && activeTab === 'lobby' && (
           <LobbyView selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} selectedTopic={selectedTopic} setSelectedTopic={setSelectedTopic} isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} isConnecting={isConnecting} isSingleMode={isSingleMode} handleMatchStart={handleMatchStart} />
         )}
