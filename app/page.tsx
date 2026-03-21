@@ -6,7 +6,7 @@ import LobbyView from './components/LobbyView';
 import RecordView from './components/RecordView';
 import ChatRoom from './components/ChatRoom';
 import ProfileView from './components/ProfileView';
-import LoungeRoom from './components/LoungeRoom'; // ★ 신규 컴포넌트 임포트
+import LoungeRoom from './components/LoungeRoom';
 
 const SERVER_URL = 'https://we-us-backend.onrender.com';
 
@@ -29,7 +29,6 @@ export default function WeUsApp() {
   const [userId, setUserId] = useState<string>('');
   const [myReports, setMyReports] = useState<any[]>([]); 
 
-  // ★ step에 'lounge' 상태 추가
   const [step, setStep] = useState<'lobby' | 'role_select' | 'waiting' | 'chat' | 'lounge'>('lobby');
   const [timeLeft, setTimeLeft] = useState(180); 
   const [messages, setMessages] = useState<{ sender: string; text: string }[]>([]);
@@ -280,7 +279,8 @@ export default function WeUsApp() {
         </div>
       )}
 
-      <main className="flex-1 w-full max-w-lg mx-auto flex flex-col justify-center my-auto relative z-10 px-4 pt-4 pb-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+      {/* ★ 상단 잘림 해결: justify-center 등 강제 정렬 클래스 제거하고 위에서부터 자연스럽게 떨어지도록 flex-col 만 유지 */}
+      <main className="flex-1 w-full max-w-lg mx-auto flex flex-col relative z-10 px-4 pt-8 pb-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         {step === 'lobby' && activeTab === 'lobby' && (
           <LobbyView selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} selectedTopic={selectedTopic} setSelectedTopic={setSelectedTopic} isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} isConnecting={isConnecting} isSingleMode={isSingleMode} handleMatchStart={handleMatchStart} setStep={setStep} />
         )}
@@ -291,7 +291,6 @@ export default function WeUsApp() {
           <ProfileView userId={userId} tier={tier} personaTitle={pTitle} socketRef={socketRef} />
         )}
 
-        {/* ★ 신규: 광장 컴포넌트 렌더링 */}
         {step === 'lounge' && (
           <LoungeRoom socketRef={socketRef} userId={userId} setStep={setStep} />
         )}
@@ -323,9 +322,9 @@ export default function WeUsApp() {
         )}
       </main>
 
-      {/* 하단바는 채팅이나 광장이 아닐 때만 표시 */}
+      {/* ★ 하단 탭 붕 뜸 해결: pb-16에서 pb-6으로 자연스럽게 축소 */}
       {step === 'lobby' && (
-        <nav className="w-full max-w-lg mx-auto pb-16 pt-4 flex justify-center z-20 bg-[#050505] shrink-0 border-t border-white/5">
+        <nav className="w-full max-w-lg mx-auto pb-6 pt-3 flex justify-center z-20 bg-[#050505] shrink-0 border-t border-white/5">
           <div className="flex items-center bg-black/80 backdrop-blur-xl border border-white/10 rounded-full p-1 shadow-[0_0_20px_rgba(0,0,0,0.5)]">
             <button onClick={() => setActiveTab('lobby')} className={`px-6 py-3 rounded-full text-[11px] font-bold tracking-widest transition-all ${activeTab === 'lobby' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>LOBBY</button>
             <button onClick={() => setActiveTab('myRecord')} className={`px-6 py-3 rounded-full text-[11px] font-bold tracking-widest transition-all ${activeTab === 'myRecord' ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white/80'}`}>RECORD</button>
