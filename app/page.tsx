@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-
 import LobbyView from './components/LobbyView';
 import RecordView from './components/RecordView';
 import ChatRoom from './components/ChatRoom';
@@ -19,13 +18,13 @@ const ROLE_MAP: Record<string, { roleA: string, roleB: string }> = {
 };
 
 const ROLE_MISSIONS: Record<string, Record<string, string>> = {
-  '압박 면접': { '지원자': "이력서에 '해외 영업 3년'이라 적었지만, 사실 워홀 3개월이 전부입니다. 3분간 방어하세요.", '면접관': "해외 영업 3년이라는데 철저한 거짓말 같습니다. 집요하게 꼬리 질문을 던지세요." },
-  '진상손님 방어전': { '알바생': "카페 알바생입니다. 손님이 '얼음이 녹았다'며 환불을 요구합니다. 방어하세요.", '진상손님': "얼음이 너무 빨리 녹았다는 억지 논리를 펴서 전액 환불을 받아내세요." },
-  '100억 받기 VS 무병장수': { '100억 선택': "100억을 고른 당신. 상대에게 '돈 없는 장수는 저주'라고 팩트폭행하세요.", '무병장수 선택': "상대에게 '건강을 잃으면 돈은 휴지조각'이라는 논리로 상대를 압도하세요." }
+  '압박 면접': { '지원자': "당신은 이력서에 '해외 영업 3년'이라 적었지만, 사실 워홀 3개월이 전부입니다. 3분간 방어하세요.", '면접관': "해외 영업 3년이라는데 철저한 거짓말 같습니다. 집요하게 꼬리 질문을 던지세요." },
+  '진상손님 방어전': { '알바생': "당신은 카페 알바생입니다. 다 마신 얼음을 가져와 환불을 요구하는 손님을 방어하세요.", '진상손님': "당신은 돈이 아깝습니다. 얼음이 빨리 녹았다는 논리로 전액 환불을 받아내세요." },
+  '100억 받기 VS 무병장수': { '100억 선택': "당신은 100억을 선택했습니다. 무병장수를 고른 상대에게 돈 없는 장수는 저주라고 팩트폭행하세요.", '무병장수 선택': "당신은 무병장수를 선택했습니다. 건강을 잃으면 돈은 휴지조각이라고 상대를 압도하세요." }
 };
 
 export default function WeUsApp() {
-  const [activeTab, setActiveTab] = useState<'lobby' | 'myRecord' | 'profile'>('lobby'); // ★ PROFILE 탭 추가
+  const [activeTab, setActiveTab] = useState<'lobby' | 'myRecord' | 'profile'>('lobby');
   const [userId, setUserId] = useState<string>('');
   const [myReports, setMyReports] = useState<any[]>([]); 
 
@@ -49,11 +48,18 @@ export default function WeUsApp() {
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [reportData, setReportData] = useState<string | null>(null);
+  const [partnerId, setPartnerId] = useState<string | null>(null); // ★ V2 추가: 리포트 창에서 친구 추가할 파트너 ID
   
   const [showAd, setShowAd] = useState(false);
   const [adCountdown, setAdCountdown] = useState(3);
   const [isConnecting, setIsConnecting] = useState(false); 
   const [isTyping, setIsTyping] = useState(false); 
+
+  // ★ 커스텀 시스템 모달 (alert, confirm 완전 대체)
+  const [sysModal, setSysModal] = useState({ isOpen: false, title: '', desc: '', type: 'alert', onConfirm: () => {} });
+  const showModal = (title: string, desc: string, type: 'alert' | 'confirm' = 'alert', onConfirm = () => {}) => {
+    setSysModal({ isOpen: true, title, desc, type, onConfirm });
+  };
 
   const socketRef = useRef<Socket | null>(null);
   const lastInteractionTime = useRef<number>(Date.now());
@@ -82,7 +88,7 @@ export default function WeUsApp() {
       setIsConnecting(false); setRoom(data.roomName || data.roomId);
       setMyRole(data.myRole || '나'); setPartnerRole(data.partner || '상대방');
       setStep('chat'); setTimeLeft(180); setHasVoted(false); setVoteStatus(''); setExtensionCount(0); 
-      setIsAnalyzing(false); setReportData(null); setShowAd(false); setIsTyping(false); 
+      setIsAnalyzing(false); setReportData(null); setPartnerId(null); setShowAd(false); setIsTyping(false); 
       
       const missionText = ROLE_MISSIONS[stateRefs.current.selectedTopic]?.[data.myRole] || `당신은 [${data.myRole}] 역할을 배정받았습니다. 대화를 시작해 보세요.`;
       setMessages([{ sender: 'System', text: `🎯 [미션 하달]\n${missionText}` }]);
@@ -99,7 +105,8 @@ export default function WeUsApp() {
 
     socketRef.current.on('partner_left', () => {
       if (!stateRefs.current.isAnalyzing && !stateRefs.current.reportData && !stateRefs.current.showAd) {
-        alert("상대방이 나가 대화가 종료되었습니다."); setStep('lobby');
+        // ★ 투박한 alert 대신 예쁜 우리 앱 전용 모달 띄우기
+        showModal('대화 종료', '상대방이 방을 나갔습니다.', 'alert', () => setStep('lobby'));
       }
     });
 
@@ -115,8 +122,12 @@ export default function WeUsApp() {
 
     socketRef.current.on('receive_report', (data) => {
       setIsAnalyzing(false);
-      if (data.error) setReportData("오류로 리포트를 발급할 수 없습니다.");
-      else { setReportData(data.reportText); if (userId) socketRef.current?.emit('request_my_records', userId); }
+      if (data.error) showModal("분석 실패", "대화 내용이 너무 짧아 리포트를 발급할 수 없습니다.", "alert");
+      else { 
+        setReportData(data.reportText); 
+        setPartnerId(data.partnerId); // 상대방 ID 저장
+        if (userId) socketRef.current?.emit('request_my_records', userId); 
+      }
     });
 
     return () => { socketRef.current?.disconnect(); };
@@ -126,13 +137,22 @@ export default function WeUsApp() {
     if (activeTab === 'myRecord' && userId) socketRef.current?.emit('request_my_records', userId);
   }, [activeTab, userId]);
 
+  // ★ 타임오버 시그널을 위해 타이머 로직 수정
   useEffect(() => {
     if (step !== 'chat' || timeLeft <= 0 || isAnalyzing || reportData || showAd) return;
     const timer = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
-          clearInterval(timer); setIsAnalyzing(true); setShowAd(true); setAdCountdown(3);      
-          socketRef.current?.emit('request_chemistry_report', { room, userId }); return 0;
+          clearInterval(timer); 
+          setIsAnalyzing(true); 
+          
+          // 0초가 되면 2초 동안 대기(이펙트 노출) 후 광고 창 띄우기
+          setTimeout(() => {
+            setShowAd(true); setAdCountdown(3);      
+            socketRef.current?.emit('request_chemistry_report', { room, userId }); 
+          }, 2000);
+          
+          return 0;
         }
         return prev - 1;
       });
@@ -166,8 +186,8 @@ export default function WeUsApp() {
     setIsConnecting(true); setIsSingleMode(isAiMode);
     if (ROLE_MAP[selectedTopic]) setStep('role_select');
     else {
-      if (isAiMode) socketRef.current?.emit('start_ai_chat', { topic: selectedTopic, myRole: '익명', aiRole: 'AI 파트너' });
-      else socketRef.current?.emit('join_queue', { topic: selectedTopic, role: 'random' });
+      if (isAiMode) socketRef.current?.emit('start_ai_chat', { topic: selectedTopic, myRole: '익명', aiRole: 'AI 파트너', userId });
+      else socketRef.current?.emit('join_queue', { topic: selectedTopic, role: 'random', userId });
       setStep('waiting');
     }
     setIsConnecting(false);
@@ -178,9 +198,9 @@ export default function WeUsApp() {
     if (isSingleMode) {
        const myRoleName = chosenRole === 'A' ? roleData.roleA : chosenRole === 'B' ? roleData.roleB : roleData.roleA; 
        const aiRoleName = chosenRole === 'A' ? roleData.roleB : chosenRole === 'B' ? roleData.roleA : roleData.roleB;
-       socketRef.current?.emit('start_ai_chat', { topic: selectedTopic, myRole: myRoleName, aiRole: aiRoleName });
+       socketRef.current?.emit('start_ai_chat', { topic: selectedTopic, myRole: myRoleName, aiRole: aiRoleName, userId });
     } else {
-       socketRef.current?.emit('join_queue', { topic: selectedTopic, role: chosenRole, roleA_name: roleData.roleA, roleB_name: roleData.roleB });
+       socketRef.current?.emit('join_queue', { topic: selectedTopic, role: chosenRole, roleA_name: roleData.roleA, roleB_name: roleData.roleB, userId });
     }
     setStep('waiting');
   };
@@ -203,7 +223,6 @@ export default function WeUsApp() {
     else if (avgEmpathy >= 75 && avgLogic <= 60) { pTitle = "🕊️ 천사표 리스너"; pDesc = "압도적인 공감 능력으로 무장해제를 이끌어냄"; }
     else if (avgLogic >= 80 && avgLinguistics >= 80) { pTitle = "👑 무자비한 토론 제왕"; pDesc = "빈틈없는 논리와 유창한 어휘로 대화를 지배함"; }
     else { pTitle = "🌱 성장하는 소통러"; pDesc = "다양한 대화 방식을 균형 있게 흡수하며 발전 중"; }
-
     const os = (avgLogic + avgLinguistics + avgEmpathy) / 3;
     if (os >= 90) tier = "Top 1%"; else if (os >= 80) tier = "Top 10%"; else if (os >= 70) tier = "Top 30%"; else tier = "Top 50%";
   }
@@ -213,6 +232,27 @@ export default function WeUsApp() {
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/10 blur-[120px] rounded-full pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-emerald-900/10 blur-[120px] rounded-full pointer-events-none" />
 
+      {/* ★ 전역 커스텀 시스템 모달 */}
+      {sysModal.isOpen && (
+        <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-[100] p-6 backdrop-blur-sm transition-opacity">
+          <div className="w-full max-w-sm bg-[#0a0a0a] border border-white/10 rounded-[2rem] p-8 shadow-2xl flex flex-col text-center">
+            <h3 className="text-lg font-bold text-white mb-2 tracking-widest">{sysModal.title}</h3>
+            <p className="text-sm text-white/60 mb-8 leading-relaxed whitespace-pre-line">{sysModal.desc}</p>
+            <div className="flex gap-3">
+              {sysModal.type === 'confirm' && (
+                <button onClick={() => setSysModal({ ...sysModal, isOpen: false })} className="flex-1 py-3.5 bg-white/5 hover:bg-white/10 text-white/70 rounded-xl text-sm font-bold tracking-widest transition-colors">취소</button>
+              )}
+              <button 
+                onClick={() => { sysModal.onConfirm(); setSysModal({ ...sysModal, isOpen: false }); }} 
+                className="flex-1 py-3.5 bg-emerald-500/20 border border-emerald-500/50 hover:bg-emerald-500/30 text-emerald-300 rounded-xl text-sm font-bold tracking-widest transition-colors"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="flex-1 w-full max-w-lg mx-auto flex flex-col relative z-10 px-4 pt-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         {step === 'lobby' && activeTab === 'lobby' && (
           <LobbyView selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} selectedTopic={selectedTopic} setSelectedTopic={setSelectedTopic} isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} isConnecting={isConnecting} isSingleMode={isSingleMode} handleMatchStart={handleMatchStart} />
@@ -221,11 +261,11 @@ export default function WeUsApp() {
           <RecordView userId={userId} myReports={myReports} totalPlayHours={totalPlayHours} personaTitle={pTitle} personaDesc={pDesc} tier={tier} avgLogic={avgLogic} avgLinguistics={avgLinguistics} avgEmpathy={avgEmpathy} />
         )}
         {step === 'lobby' && activeTab === 'profile' && (
-          <ProfileView userId={userId} tier={tier} personaTitle={pTitle} />
+          <ProfileView userId={userId} tier={tier} personaTitle={pTitle} socketRef={socketRef} />
         )}
 
         {step === 'role_select' && ROLE_MAP[selectedTopic] && (
-          <div className="text-center w-full flex-1 flex flex-col justify-center">
+          <div className="text-center w-full flex-1 flex flex-col justify-center pb-20">
             <div className="bg-[#080808]/90 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-6 shadow-2xl">
               <h2 className="text-lg font-bold text-white mb-2">역할을 선택하세요</h2>
               <div className="space-y-3 mb-6 mt-6">
@@ -239,7 +279,7 @@ export default function WeUsApp() {
         )}
 
         {step === 'waiting' && (
-          <div className="text-center space-y-6 flex-1 flex flex-col justify-center">
+          <div className="text-center space-y-6 flex-1 flex flex-col justify-center pb-20">
             <div className="relative w-16 h-16 mx-auto"><div className="absolute inset-0 border-2 border-white/20 rounded-full"></div><div className="absolute inset-0 border-2 border-white rounded-full border-t-transparent animate-spin"></div></div>
             <p className="text-lg font-light">상대방을 찾는 중...</p>
             <button onClick={() => { setStep('lobby'); setIsConnecting(false); socketRef.current?.emit('leave_queue'); }} className="text-xs text-white/30 underline">취소</button>
@@ -247,17 +287,17 @@ export default function WeUsApp() {
         )}
 
         {step === 'chat' && (
-          <ChatRoom socketRef={socketRef} room={room} userId={userId} myRole={myRole} partnerRole={partnerRole} selectedTopic={selectedTopic} isSingleMode={isSingleMode} messages={messages} setMessages={setMessages} isTyping={isTyping} timeLeft={timeLeft} formatTime={formatTime} isAnalyzing={isAnalyzing} reportData={reportData} setReportData={setReportData} showAd={showAd} setShowAd={setShowAd} adCountdown={adCountdown} tier={tier} hasVoted={hasVoted} setHasVoted={setHasVoted} voteStatus={voteStatus} extensionCount={extensionCount} forceLeaveRoom={forceLeaveRoom} />
+          <ChatRoom socketRef={socketRef} room={room} userId={userId} partnerId={partnerId} myRole={myRole} partnerRole={partnerRole} selectedTopic={selectedTopic} isSingleMode={isSingleMode} messages={messages} setMessages={setMessages} isTyping={isTyping} timeLeft={timeLeft} formatTime={formatTime} isAnalyzing={isAnalyzing} reportData={reportData} setReportData={setReportData} showAd={showAd} setShowAd={setShowAd} adCountdown={adCountdown} tier={tier} hasVoted={hasVoted} setHasVoted={setHasVoted} voteStatus={voteStatus} extensionCount={extensionCount} forceLeaveRoom={forceLeaveRoom} showModal={showModal} />
         )}
       </main>
 
-      {/* ★ V2 탭 네비게이션: PROFILE 탭 신설 */}
+      {/* ★ 하단바: pb-20 으로 대폭 올려서 최하단 클릭 간섭 원천 차단 */}
       {step === 'lobby' && (
-        <nav className="w-full max-w-lg mx-auto pb-6 pt-2 flex justify-center z-20 bg-gradient-to-t from-[#050505] to-transparent shrink-0">
+        <nav className="shrink-0 w-full max-w-lg mx-auto pb-20 pt-2 flex justify-center z-20 bg-gradient-to-t from-[#050505] to-transparent">
           <div className="flex items-center bg-black/80 backdrop-blur-xl border border-white/10 rounded-full p-1 shadow-[0_0_20px_rgba(0,0,0,0.5)]">
-            <button onClick={() => setActiveTab('lobby')} className={`px-6 py-2.5 rounded-full text-[11px] font-bold tracking-widest transition-all ${activeTab === 'lobby' ? 'bg-white text-black' : 'text-white/40 hover:text-white/80'}`}>LOBBY</button>
-            <button onClick={() => setActiveTab('myRecord')} className={`px-6 py-2.5 rounded-full text-[11px] font-bold tracking-widest transition-all ${activeTab === 'myRecord' ? 'bg-white text-black' : 'text-white/40 hover:text-white/80'}`}>RECORD</button>
-            <button onClick={() => setActiveTab('profile')} className={`px-6 py-2.5 rounded-full text-[11px] font-bold tracking-widest transition-all ${activeTab === 'profile' ? 'bg-white text-black' : 'text-white/40 hover:text-white/80'}`}>PROFILE</button>
+            <button onClick={() => setActiveTab('lobby')} className={`px-6 py-3 rounded-full text-[11px] font-bold tracking-widest transition-all ${activeTab === 'lobby' ? 'bg-white text-black' : 'text-white/40 hover:text-white/80'}`}>LOBBY</button>
+            <button onClick={() => setActiveTab('myRecord')} className={`px-6 py-3 rounded-full text-[11px] font-bold tracking-widest transition-all ${activeTab === 'myRecord' ? 'bg-white text-black' : 'text-white/40 hover:text-white/80'}`}>RECORD</button>
+            <button onClick={() => setActiveTab('profile')} className={`px-6 py-3 rounded-full text-[11px] font-bold tracking-widest transition-all ${activeTab === 'profile' ? 'bg-white text-black' : 'text-white/40 hover:text-white/80'}`}>PROFILE</button>
           </div>
         </nav>
       )}
