@@ -4,7 +4,7 @@ import html2canvas from 'html2canvas';
 export default function ChatRoom({
   socketRef, room, userId, partnerId, myRole, partnerRole, selectedTopic, isSingleMode,
   messages, setMessages, isTyping, timeLeft, formatTime, 
-  isAnalyzing, reportData, setReportData, showAd, setShowAd, adCountdown, tier,
+  isAnalyzing, reportData, reportStats, setReportData, showAd, setShowAd, adCountdown, tier,
   hasVoted, setHasVoted, voteStatus, extensionCount, forceLeaveRoom, showModal
 }: any) {
   const [inputText, setInputText] = useState('');
@@ -15,9 +15,12 @@ export default function ChatRoom({
   const reportCardRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // 메시지 자동 스크롤
+  // ★ 변경점: 메시지 자동 스크롤 (렌더링 지연 해결을 위한 setTimeout 적용)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const timer = setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }, 100);
+    return () => clearTimeout(timer);
   }, [messages, isTyping]);
 
   const sendMessage = (e: React.FormEvent) => {
@@ -57,7 +60,6 @@ export default function ChatRoom({
     } catch (err) { showModal('오류', '이미지 캡처 중 오류가 발생했습니다.', 'alert'); } finally { setIsCapturing(false); }
   };
 
-  // ★ 친구 추가 로직
   const handleAddFriend = () => {
     if (!partnerId) return showModal('알림', 'AI와는 친구를 맺을 수 없습니다.', 'alert');
     socketRef.current?.emit('add_friend', { userId, friendId: partnerId });
@@ -127,13 +129,20 @@ export default function ChatRoom({
             <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4">
                <h2 className="text-[10px] font-bold tracking-[0.3em] text-white/50">WE US REPORT</h2><span className="text-[10px] text-emerald-400 border border-emerald-400/30 px-2 py-1 rounded-full">{tier}</span>
             </div>
+            
+            {/* ★ 변경점: 3스탯 리포트에 표시 */}
+            <div className="w-full flex justify-around mb-6 px-2">
+              <div className="flex flex-col items-center"><span className="text-[10px] text-white/40 mb-1">LOGIC</span><span className="text-xl font-bold text-blue-400">{reportStats?.logic || 50}</span></div>
+              <div className="flex flex-col items-center"><span className="text-[10px] text-white/40 mb-1">LINGUISTICS</span><span className="text-xl font-bold text-emerald-400">{reportStats?.linguistics || 50}</span></div>
+              <div className="flex flex-col items-center"><span className="text-[10px] text-white/40 mb-1">EMPATHY</span><span className="text-xl font-bold text-purple-400">{reportStats?.empathy || 50}</span></div>
+            </div>
+
             <h2 className="text-lg font-light tracking-widest text-center mb-6 text-white">{isSingleMode ? 'PERSONAL TUTORING' : 'CHEMISTRY ANALYSIS'}</h2>
             <div className="space-y-4 text-xs text-gray-300 whitespace-pre-line leading-relaxed flex-1 bg-white/[0.02] p-5 rounded-2xl border border-white/5">{reportData}</div>
             <div className="mt-4 text-center text-[10px] text-white/30 font-mono">we-us.online</div>
           </div>
           
           <div className="w-full max-w-sm mt-4 space-y-2 px-2">
-            {/* ★ 친구 추가 버튼 추가 */}
             {!isSingleMode && partnerId && (
               <button onClick={handleAddFriend} className="w-full bg-emerald-500/20 border border-emerald-500/50 hover:bg-emerald-500/30 text-emerald-300 font-bold py-3.5 rounded-xl transition-colors flex justify-center items-center text-sm tracking-widest">
                 🤝 인사이트 인맥(친구) 추가하기

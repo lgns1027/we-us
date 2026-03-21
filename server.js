@@ -16,7 +16,11 @@ mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log("🍃 MongoDB 연결 성공! 대화 기록이 영구 저장됩니다."))
   .catch(err => console.error("❌ DB 연결 실패 (서버 환경을 확인하세요):", err));
 
-// ★ V2: 유저 프로필 및 친구 관리 스키마
+// ==========================================
+// DB 스키마 정의
+// ==========================================
+
+// ★ V2 신규 스키마: 유저 닉네임 및 친구(인맥) 목록 영구 저장용
 const UserSchema = new mongoose.Schema({
   userId: { type: String, unique: true },
   nickname: { type: String, default: '익명의 소통러' },
@@ -25,7 +29,7 @@ const UserSchema = new mongoose.Schema({
 });
 const User = mongoose.model('User', UserSchema);
 
-// ★ V2: 1:1 쪽지(DM) 저장 스키마
+// ★ V2 신규 스키마: 1:1 쪽지(DM) 저장용
 const DMSchema = new mongoose.Schema({
   senderId: String,
   receiverId: String,
@@ -59,6 +63,10 @@ const BlacklistSchema = new mongoose.Schema({
 });
 const Blacklist = mongoose.model('Blacklist', BlacklistSchema);
 
+// ==========================================
+// 전역 변수 및 헬퍼 함수
+// ==========================================
+
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const waitingQueues = {}; 
@@ -66,7 +74,7 @@ const activeRooms = {};
 const roomVotes = {};
 
 async function getGoogleAIResponse(systemPrompt, history, maxTokens = 150) {
-  // ★ AI 응답 지연 해결 (가장 빠른 모델 최우선)
+  // ★ 첫 대답 30초 지연 해결을 위해 가장 빠른 flash 모델 최우선 배치
   const modelsToTry = [
     "gemini-1.5-flash", 
     "gemini-2.5-flash",
@@ -115,20 +123,13 @@ function filterProfanity(text) {
 
 function getPersonaPrompt(topic, isReport = false, partnerRole = '') {
   if (isReport) {
-    // ★ 리포트 형식 간소화 (점수 도출 최적화)
-    const basePrompt = `당신은 냉철하고 객관적인 대화 심판관입니다. 대화 기록을 분석하여 다음 딱 2가지만 구체적으로 작성하세요.
-1. [한줄평]: 대화의 승패, 논리적 허점, 혹은 상대방의 태도에 대한 팩트폭력 한줄평 (50자 이내)
-2. [해시태그]: 대화 성격을 보여주는 요약 키워드 #해시태그 3개`;
-    const statsInstruction = `\n\n답변 맨 마지막 줄에 다음 형식으로 참여자의 평균 능력치를 평가해 적어주세요: [LOGIC: 0~100사이숫자] [LINGUISTICS: 0~100사이숫자] [EMPATHY: 0~100사이숫자]`;
-    
-    if (['영어 프리토킹', '가벼운 스몰토크'].includes(topic)) {
-      return `사용자들의 대화 기록입니다. 1. 전반적인 대화 흐름 2. 긍정적인 소통 태도 3. 조언을 작성하세요.` + statsInstruction;
-    } else {
-      return basePrompt + statsInstruction;
-    }
+    // ★ API 비용 최소화 및 정확도 향상을 위한 초압축 프롬프트 (3스탯 유지)
+    return `대화 기록을 분석하여 다음 딱 2가지만 아주 짧게 작성하세요. 부가 설명 절대 금지.
+1. [한줄평]: 대화에 대한 팩트폭력 한줄평 (50자 이내)
+2. [점수]: 답변 맨 마지막 줄에 다음 형식으로 참여자의 평균을 평가해 주세요: [LOGIC: 0~100] [LINGUISTICS: 0~100] [EMPATHY: 0~100]`;
   }
 
-  // ★ AI 이름표 증식 방지 제약 조건
+  // "진상손님:" 같이 이름표를 붙여서 도배되는 현상 절대 금지 규칙 추가
   const baseConstraint = `\n\n[절대 규칙]: 절대 상대방을 비하하거나 모욕적인 도발을 하지 마세요. 예의를 갖추되 역할에 몰입하세요. 대답할 때 당신의 이름표(예: "${partnerRole}:")를 텍스트 맨 앞에 절대 붙이지 마세요. 반드시 1~2문장 이내(최대 50자 내외)로 자연스럽게 마침표로 끝나는 완성된 문장만 출력하세요. 말이 중간에 끊기면 안 됩니다.`;
 
   switch(topic) {
@@ -185,11 +186,13 @@ function tryMatch(topicKey) {
   }
 }
 
+// ==========================================
+// 소켓 통신 처리
+// ==========================================
+
 io.on('connection', (socket) => {
-  
-  // ==========================================
-  // ★ V2: 프로필 및 인맥(친구), 쪽지(DM) 처리 영역
-  // ==========================================
+
+  // --- [V2: 프로필 & 친구 관리] ---
   socket.on('get_profile', async (userId) => {
     try {
       if (!userId) return;
@@ -198,7 +201,9 @@ io.on('connection', (socket) => {
       
       const friendsData = await User.find({ userId: { $in: user.friends } }).select('userId nickname');
       socket.emit('receive_profile', { nickname: user.nickname, friends: friendsData });
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   });
 
   socket.on('update_nickname', async (data) => {
@@ -209,11 +214,13 @@ io.on('connection', (socket) => {
         { nickname: data.nickname }, 
         { new: true, upsert: true }
       );
-      // ★ 닉네임 저장 버그 픽스: 변경 후 친구 목록을 정상적으로 다시 가져와서 응답
+      
       const friendsData = await User.find({ userId: { $in: updatedUser.friends } }).select('userId nickname');
       socket.emit('receive_profile', { nickname: updatedUser.nickname, friends: friendsData });
       console.log(`✅ [닉네임 변경 완료] ${data.userId} -> ${data.nickname}`);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error("❌ [닉네임 변경 에러]:", err);
+    }
   });
 
   socket.on('add_friend', async (data) => {
@@ -224,12 +231,16 @@ io.on('connection', (socket) => {
         user.friends.push(data.friendId);
         await user.save();
       }
+      
       const updatedUser = await User.findOne({ userId: data.userId });
       const friendsData = await User.find({ userId: { $in: updatedUser.friends } }).select('userId nickname');
       socket.emit('receive_profile', { nickname: updatedUser.nickname, friends: friendsData });
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error("❌ [친구 추가 에러]:", err);
+    }
   });
 
+  // --- [V2: 1:1 쪽지 (DM) 관리] ---
   socket.on('get_dms', async ({ userId, friendId }) => {
     try {
       const dms = await DM.find({
@@ -239,18 +250,24 @@ io.on('connection', (socket) => {
         ]
       }).sort({ createdAt: 1 });
       socket.emit('receive_dms', dms);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error("❌ [DM 불러오기 에러]:", err);
+    }
   });
 
   socket.on('send_dm', async ({ senderId, receiverId, text }) => {
     try {
       const cleanText = filterProfanity(text);
       const newMsg = await DM.create({ senderId, receiverId, text: cleanText });
+      
+      // 방 전체가 아닌 글로벌로 쏴서, 연결된 대상이 있다면 받도록 처리
       io.emit('new_dm_arrived', newMsg);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error("❌ [DM 전송 에러]:", err);
+    }
   });
-  // ==========================================
 
+  // --- [기존 대화방 매칭 & 로직] ---
   socket.on('join_queue', (data) => {
     const { topic, role, roleA_name, roleB_name, userId } = data;
     
@@ -321,7 +338,8 @@ io.on('connection', (socket) => {
       const systemPrompt = getPersonaPrompt(roomData.topic, false, socket.aiPartnerRole);
       let aiReply = await getGoogleAIResponse(systemPrompt, roomData.history.slice(-8), 150); 
       
-      aiReply = aiReply.replace(/^.*?:/, '').trim(); // 이름표 강제 삭제 처리
+      // 이름표 강제 삭제 필터
+      aiReply = aiReply.replace(/^.*?:/, '').trim();
       
       roomData.history.push({ role: 'assistant', content: aiReply }); 
       socket.emit('receive_message', { sender: socket.aiPartnerRole, text: aiReply });
@@ -424,6 +442,10 @@ io.on('connection', (socket) => {
   });
 });
 
+// ==========================================
+// 서버 타이머: 시간 초과 시 리포트 자동 생성
+// ==========================================
+
 setInterval(async () => {
   const now = Date.now();
   for (const room in activeRooms) {
@@ -441,12 +463,13 @@ setInterval(async () => {
       
       const systemPrompt = getPersonaPrompt(roomData.topic, true);
       
-      // ★ [object Object] 에러 완벽 차단 로직 유지
+      // 싱글 모드 DB 저장 시 객체 데이터 에러 방지 처리 추가
       const conversationText = roomData.type === 'single'
         ? roomData.history.map(msg => `${msg.role === 'user' ? '나' : '상대방'}: ${msg.content}`).join('\n')
         : roomData.history.join('\n');
       
-      const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 400); 
+      // API 토큰 낭비를 막기 위해 maxTokens를 150으로 제한
+      const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 150); 
       
       let logicScore = 50, linguisticsScore = 50, empathyScore = 50;
       const logicMatch = reportContent.match(/\[LOGIC:\s*(\d+)\]/i);
@@ -480,7 +503,11 @@ setInterval(async () => {
       if (reportContent.includes("불안정하여")) {
         io.to(room).emit('receive_report', { error: true });
       } else {
-        io.to(room).emit('receive_report', { reportText: cleanReportText, partnerId: Array.from(roomData.userIds).find(id => id !== null) });
+        io.to(room).emit('receive_report', { 
+          reportText: cleanReportText, 
+          stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore },
+          partnerId: Array.from(roomData.userIds).find(id => id !== null) 
+        });
       }
     }
   }

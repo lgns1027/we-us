@@ -8,7 +8,6 @@ export default function ProfileView({ userId, tier, personaTitle, socketRef }: a
   const [editInput, setEditInput] = useState('');
   const [friendsList, setFriendsList] = useState<any[]>([]);
   
-  // ★ 1:1 쪽지(DM) 관련 상태
   const [activeChatFriend, setActiveChatFriend] = useState<{ userId: string, nickname: string } | null>(null);
   const [dmMessages, setDmMessages] = useState<any[]>([]);
   const [dmInput, setDmInput] = useState('');
@@ -22,12 +21,10 @@ export default function ProfileView({ userId, tier, personaTitle, socketRef }: a
         setFriendsList(Array.isArray(data.friends) ? data.friends : []);
       });
 
-      // 서버에서 보낸 과거 DM 내역 수신
       socketRef.current.on('receive_dms', (dms: any[]) => {
         setDmMessages(dms);
       });
 
-      // 누군가 보낸 실시간 새 DM 수신
       socketRef.current.on('new_dm_arrived', (newMsg: any) => {
         if (
           (newMsg.senderId === userId && newMsg.receiverId === activeChatFriend?.userId) ||
@@ -44,7 +41,6 @@ export default function ProfileView({ userId, tier, personaTitle, socketRef }: a
     };
   }, [userId, socketRef, activeChatFriend]);
 
-  // DM 스크롤 맨 아래로 유지
   useEffect(() => {
     dmEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [dmMessages]);
@@ -70,11 +66,9 @@ export default function ProfileView({ userId, tier, personaTitle, socketRef }: a
   const safeFriendsList = Array.isArray(friendsList) ? friendsList : [];
 
   return (
-    <div className="w-full flex flex-col h-full bg-[#080808]/90 backdrop-blur-2xl border border-white/5 rounded-[2rem] shadow-2xl relative mb-6 overflow-hidden">
+    // ★ 변경점: h-full 대신 h-[90%] my-auto를 사용하여 수직 중앙 정렬 처리
+    <div className="w-full flex flex-col h-[90%] my-auto bg-[#080808]/90 backdrop-blur-2xl border border-white/5 rounded-[2rem] shadow-2xl relative overflow-hidden">
       
-      {/* ========================================== */}
-      {/* 1. 쪽지방(DM) 화면 (활성화 되었을 때만 렌더링) */}
-      {/* ========================================== */}
       {activeChatFriend ? (
         <div className="absolute inset-0 z-50 flex flex-col bg-[#050505]">
           <div className="p-4 border-b border-white/10 flex items-center gap-3 shrink-0 bg-white/[0.02]">
@@ -113,9 +107,6 @@ export default function ProfileView({ userId, tier, personaTitle, socketRef }: a
           </form>
         </div>
       ) : (
-        /* ========================================== */
-        /* 2. 기본 프로필 화면 (친구 목록) */
-        /* ========================================== */
         <div className="flex flex-col h-full p-6">
           <div className="flex flex-col items-center justify-center space-y-4 pb-6 border-b border-white/10 shrink-0 mt-4">
             <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-emerald-500/20 to-blue-500/20 border border-white/20 flex items-center justify-center text-3xl shadow-[0_0_30px_rgba(16,185,129,0.15)]">🎭</div>

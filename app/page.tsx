@@ -48,6 +48,7 @@ export default function WeUsApp() {
 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [reportData, setReportData] = useState<string | null>(null);
+  const [reportStats, setReportStats] = useState<any>(null); // ★ 3스탯 전달용 추가
   const [partnerId, setPartnerId] = useState<string | null>(null); 
   
   const [showAd, setShowAd] = useState(false);
@@ -87,7 +88,7 @@ export default function WeUsApp() {
       setIsConnecting(false); setRoom(data.roomName || data.roomId);
       setMyRole(data.myRole || '나'); setPartnerRole(data.partner || '상대방');
       setStep('chat'); setTimeLeft(180); setHasVoted(false); setVoteStatus(''); setExtensionCount(0); 
-      setIsAnalyzing(false); setReportData(null); setPartnerId(null); setShowAd(false); setIsTyping(false); 
+      setIsAnalyzing(false); setReportData(null); setReportStats(null); setPartnerId(null); setShowAd(false); setIsTyping(false); 
       
       const missionText = ROLE_MISSIONS[stateRefs.current.selectedTopic]?.[data.myRole] || `당신은 [${data.myRole}] 역할을 배정받았습니다. 대화를 시작해 보세요.`;
       setMessages([{ sender: 'System', text: `🎯 [미션 하달]\n${missionText}` }]);
@@ -123,6 +124,7 @@ export default function WeUsApp() {
       if (data.error) showModal("분석 실패", "대화 내용이 너무 짧아 리포트를 발급할 수 없습니다.", "alert");
       else { 
         setReportData(data.reportText); 
+        setReportStats(data.stats); // ★ 3스탯 수신
         setPartnerId(data.partnerId); 
         if (userId) socketRef.current?.emit('request_my_records', userId); 
       }
@@ -247,8 +249,8 @@ export default function WeUsApp() {
         </div>
       )}
 
-      {/* ★ 메인 콘텐츠 영역: 하단바와 물리적으로 분리됨 */}
-      <main className="flex-1 w-full max-w-lg mx-auto flex flex-col relative z-10 px-4 pt-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+      {/* ★ 변경점: justify-center my-auto 로 수직 중앙 정렬 처리 */}
+      <main className="flex-1 w-full max-w-lg mx-auto flex flex-col justify-center my-auto relative z-10 px-4 pt-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         {step === 'lobby' && activeTab === 'lobby' && (
           <LobbyView selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} selectedTopic={selectedTopic} setSelectedTopic={setSelectedTopic} isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} isConnecting={isConnecting} isSingleMode={isSingleMode} handleMatchStart={handleMatchStart} />
         )}
@@ -282,11 +284,10 @@ export default function WeUsApp() {
         )}
 
         {step === 'chat' && (
-          <ChatRoom socketRef={socketRef} room={room} userId={userId} partnerId={partnerId} myRole={myRole} partnerRole={partnerRole} selectedTopic={selectedTopic} isSingleMode={isSingleMode} messages={messages} setMessages={setMessages} isTyping={isTyping} timeLeft={timeLeft} formatTime={formatTime} isAnalyzing={isAnalyzing} reportData={reportData} setReportData={setReportData} showAd={showAd} setShowAd={setShowAd} adCountdown={adCountdown} tier={tier} hasVoted={hasVoted} setHasVoted={setHasVoted} voteStatus={voteStatus} extensionCount={extensionCount} forceLeaveRoom={forceLeaveRoom} showModal={showModal} />
+          <ChatRoom socketRef={socketRef} room={room} userId={userId} partnerId={partnerId} myRole={myRole} partnerRole={partnerRole} selectedTopic={selectedTopic} isSingleMode={isSingleMode} messages={messages} setMessages={setMessages} isTyping={isTyping} timeLeft={timeLeft} formatTime={formatTime} isAnalyzing={isAnalyzing} reportData={reportData} reportStats={reportStats} setReportData={setReportData} showAd={showAd} setShowAd={setShowAd} adCountdown={adCountdown} tier={tier} hasVoted={hasVoted} setHasVoted={setHasVoted} voteStatus={voteStatus} extensionCount={extensionCount} forceLeaveRoom={forceLeaveRoom} showModal={showModal} />
         )}
       </main>
 
-      {/* ★ 하단바: 스크롤 영역과 완전히 분리된 하단 고정 블록 (shrink-0 적용) */}
       {step === 'lobby' && (
         <nav className="w-full max-w-lg mx-auto pb-16 pt-4 flex justify-center z-20 bg-[#050505] shrink-0 border-t border-white/5">
           <div className="flex items-center bg-black/80 backdrop-blur-xl border border-white/10 rounded-full p-1 shadow-[0_0_20px_rgba(0,0,0,0.5)]">
