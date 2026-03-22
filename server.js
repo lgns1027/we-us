@@ -169,10 +169,12 @@ function tryMatch(topicKey) {
       topic: topicKey, 
       userIds: new Set([user1.userId, user2.userId].filter(Boolean)),
       endTime: Date.now() + (180 * 1000),
-      // ★ 추가: 관전 모드를 위한 역할 및 관전자 수 기록
+      // ★ 관전 모드를 위한 속성 (투표 기록 추가)
       roleA: role1,
       roleB: role2,
-      spectators: new Set()
+      spectators: new Set(),
+      votesA: 0,
+      votesB: 0
     };
 
     user1.socket.join(roomName);
@@ -603,7 +605,7 @@ io.on('connection', (socket) => {
     socket.emit('receive_live_rooms', liveRooms);
   });
 
-  // ★ 추가: 관전자로 입장하기
+  // ★ 추가: 관전자로 입장하기 (입장 시 투표 현황도 전달)
   socket.on('join_as_spectator', (data) => {
     const { roomId } = data;
     const roomData = activeRooms[roomId];
@@ -618,9 +620,25 @@ io.on('connection', (socket) => {
         topic: roomData.topic,
         roleA: roomData.roleA,
         roleB: roomData.roleB,
-        spectatorCount: roomData.spectators.size
+        spectatorCount: roomData.spectators.size,
+        votesA: roomData.votesA || 0,
+        votesB: roomData.votesB || 0
       });
       io.to(roomId).emit('spectator_count_update', { count: roomData.spectators.size });
+    }
+  });
+
+  // ★ 신규: 관전자 실시간 하트 투표 처리 (Phase 2 핵심 로직)
+  socket.on('spectator_vote', (data) => {
+    const { roomId, voteFor } = data; // voteFor는 'A' 또는 'B'
+    const roomData = activeRooms[roomId];
+    
+    if (roomData && roomData.type === 'multi') {
+      if (voteFor === 'A') roomData.votesA = (roomData.votesA || 0) + 1;
+      else if (voteFor === 'B') roomData.votesB = (roomData.votesB || 0) + 1;
+
+      // 같은 방에 있는 모든 관전자에게 최신 투표수 브로드캐스트
+      io.to(roomId).emit('vote_update', { votesA: roomData.votesA, votesB: roomData.votesB });
     }
   });
 
