@@ -86,9 +86,15 @@ const rateLimits = new Map();
 let globalScoreT = 0;
 let globalScoreF = 0;
 
-// ==========================================
+// ★ 신규: 닉네임 유령 계정([object Object]) 생성 방지를 위한 절대 필터 함수
+function extractId(val) {
+  if (!val) return null;
+  if (typeof val === 'string') return val;
+  if (typeof val === 'object') return val.userId || String(val);
+  return String(val);
+}
+
 // ★ 신규 추가: 서버 주도형 동적 이벤트 설정 (여기만 바꾸면 앱 전체 반영)
-// ==========================================
 const CURRENT_EVENT = {
   topic: "🔥 MBTI 멸망전: T vs F",
   desc: "주말 한정 스페셜 큐 오픈! 이긴 진영의 점수가 누적됩니다.",
@@ -238,52 +244,55 @@ io.on('connection', (socket) => {
   });
 
   // ★ 푸시 토큰 등록 소켓 (앱에서 보낸 토큰을 DB에 저장)
-  socket.on('register_push_token', async ({ userId, token }) => {
+  socket.on('register_push_token', async (data) => {
     try {
-      if (!userId || !token) return;
-      await User.findOneAndUpdate({ userId }, { pushToken: token }, { upsert: true });
-      console.log(`📡 [푸시 토큰 등록 완료] ${userId}`);
+      const uid = extractId(data.userId || data);
+      const token = data.token;
+      if (!uid || !token) return;
+      await User.findOneAndUpdate({ userId: uid }, { pushToken: token }, { upsert: true });
+      console.log(`📡 [푸시 토큰 등록 완료] ${uid}`);
     } catch (err) {
       console.error("❌ [푸시 토큰 등록 에러]:", err);
     }
   });
 
   // --- [V2: 프로필 & 친구 관리] ---
-  socket.on('get_profile', async (userId) => {
+  socket.on('get_profile', async (data) => {
     try {
-      if (!userId) return;
+      const uid = extractId(data);
+      if (!uid) return;
       
-      // ★ 닉네임 버그 완벽 패치: findOneAndUpdate 덮어쓰기 현상 원천 차단
-      let user = await User.findOne({ userId: userId });
+      let user = await User.findOne({ userId: uid });
       if (!user) {
-        user = await User.create({ userId: userId, nickname: '익명의 소통러' });
+        user = await User.create({ userId: uid, nickname: '익명의 소통러' });
       }
       
       const friendsData = await User.find({ userId: { $in: user.friends } }).select('userId nickname');
       socket.emit('receive_profile', { nickname: user.nickname, friends: friendsData });
     } catch (err) {
-      console.error(err);
+      console.error("❌ [get_profile 에러]:", err);
     }
   });
 
   socket.on('update_nickname', async (data) => {
     try {
-      if (!data.userId || !data.nickname) return;
+      const uid = extractId(data.userId);
+      const nickname = data.nickname;
+      if (!uid || !nickname) return;
       
-      // ★ 닉네임 버그 완벽 패치: 명확하게 찾고, 수동으로 닉네임을 변경하여 저장
-      let user = await User.findOne({ userId: data.userId });
+      let user = await User.findOne({ userId: uid });
       if (!user) {
-        user = await User.create({ userId: data.userId, nickname: data.nickname });
+        user = await User.create({ userId: uid, nickname: nickname });
       } else {
-        user.nickname = data.nickname;
+        user.nickname = nickname;
         await user.save();
       }
 
-      socket.loungeNickname = data.nickname; // 현재 소켓 정보에도 저장
+      socket.loungeNickname = nickname; // 현재 소켓 정보에도 저장
 
       const friendsData = await User.find({ userId: { $in: user.friends } }).select('userId nickname');
       socket.emit('receive_profile', { nickname: user.nickname, friends: friendsData });
-      console.log(`✅ [닉네임 변경 완료] ${data.userId} -> ${user.nickname}`);
+      console.log(`✅ [닉네임 변경 완료] ${uid} -> ${user.nickname}`);
     } catch (err) {
       console.error("❌ [닉네임 변경 에러]:", err);
     }
@@ -291,14 +300,15 @@ io.on('connection', (socket) => {
 
   socket.on('add_friend', async (data) => {
     try {
-      if (!data.userId || !data.friendId) return;
-      const user = await User.findOne({ userId: data.userId });
+      const uid = extractId(data.userId);
+      if (!uid || !data.friendId) return;
+      const user = await User.findOne({ userId: uid });
       if (user && !user.friends.includes(data.friendId)) {
         user.friends.push(data.friendId);
         await user.save();
       }
       
-      const updatedUser = await User.findOne({ userId: data.userId });
+      const updatedUser = await User.findOne({ userId: uid });
       const friendsData = await User.find({ userId: { $in: updatedUser.friends } }).select('userId nickname');
       socket.emit('receive_profile', { nickname: updatedUser.nickname, friends: friendsData });
     } catch (err) {
@@ -307,12 +317,15 @@ io.on('connection', (socket) => {
   });
 
   // --- [V2: 1:1 쪽지 (DM) 관리] ---
-  socket.on('get_dms', async ({ userId, friendId }) => {
+  socket.on('get_dms', async (data) => {
     try {
+      const uid = extractId(data.userId);
+      const friendId = data.friendId;
+      if (!uid || !friendId) return;
       const dms = await DM.find({
         $or: [
-          { senderId: userId, receiverId: friendId },
-          { senderId: friendId, receiverId: userId }
+          { senderId: uid, receiverId: friendId },
+          { senderId: friendId, receiverId: uid }
         ]
       }).sort({ createdAt: 1 });
       socket.emit('receive_dms', dms);
@@ -321,8 +334,13 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('send_dm', async ({ senderId, receiverId, text }) => {
+  socket.on('send_dm', async (data) => {
     try {
+      const senderId = extractId(data.senderId);
+      const receiverId = data.receiverId;
+      const text = data.text;
+      if (!senderId || !receiverId || !text) return;
+
       // ★ 신규 방어막: 상대방이 나를 차단했는지 확인
       const receiver = await User.findOne({ userId: receiverId });
       if (receiver && receiver.blockedUsers && receiver.blockedUsers.includes(senderId)) {
@@ -331,7 +349,7 @@ io.on('connection', (socket) => {
       }
 
       const cleanText = filterProfanity(text);
-      const newMsg = await DM.create({ senderId, receiverId, text: cleanText });
+      const newMsg = await DM.create({ senderId: senderId, receiverId, text: cleanText });
       
       // 방 전체가 아닌 글로벌로 쏴서, 연결된 대상이 있다면 받도록 처리
       io.emit('new_dm_arrived', newMsg);
@@ -365,24 +383,26 @@ io.on('connection', (socket) => {
   // ★ 신규 기능: 사용자 영구 차단 처리
   socket.on('block_user', async (data) => {
     try {
-      const { room, userId } = data;
+      const uid = extractId(data.userId);
+      const { room } = data;
+      if (!uid || !room) return;
       const roomData = activeRooms[room];
       if (!roomData) return;
 
       let partnerId = null;
       for (let id of roomData.userIds) {
-        if (id !== userId && id !== null) {
+        if (id !== uid && id !== null) {
           partnerId = id;
           break;
         }
       }
 
       if (partnerId) {
-        const user = await User.findOne({ userId });
+        const user = await User.findOne({ userId: uid });
         if (user && !user.blockedUsers.includes(partnerId)) {
           user.blockedUsers.push(partnerId);
           await user.save();
-          console.log(`🚫 [차단 완료] ${userId}가 ${partnerId}를 영구 차단함`);
+          console.log(`🚫 [차단 완료] ${uid}가 ${partnerId}를 영구 차단함`);
         }
       }
     } catch (err) {
@@ -392,13 +412,15 @@ io.on('connection', (socket) => {
 
   // --- [기존 대화방 매칭 & 로직] ---
   socket.on('join_queue', (data) => {
-    const { topic, role, roleA_name, roleB_name, userId } = data;
+    const uid = extractId(data.userId);
+    const { topic, role, roleA_name, roleB_name } = data;
+    if (!uid) return;
     
     if (!waitingQueues[topic]) {
       waitingQueues[topic] = { roleA: [], roleB: [], random: [], roleA_name, roleB_name };
     }
     
-    const queueData = { id: socket.id, socket: socket, userId: userId };
+    const queueData = { id: socket.id, socket: socket, userId: uid };
 
     if (role === 'A') waitingQueues[topic].roleA.push(queueData);
     else if (role === 'B') waitingQueues[topic].roleB.push(queueData);
@@ -424,7 +446,8 @@ io.on('connection', (socket) => {
   });
 
   socket.on('start_ai_chat', (data) => {
-    const { topic, myRole, aiRole, userId } = data;
+    const uid = extractId(data.userId);
+    const { topic, myRole, aiRole } = data;
     const roomId = `ai_${socket.id}_${Date.now()}`;
     socket.join(roomId);
     
@@ -436,7 +459,7 @@ io.on('connection', (socket) => {
       topic: topic, 
       history: [], 
       isGeneratingReport: false,
-      userIds: new Set(userId ? [userId] : []), 
+      userIds: new Set(uid ? [uid] : []), 
       endTime: Date.now() + (180 * 1000) 
     };
 
@@ -503,16 +526,18 @@ io.on('connection', (socket) => {
   });
 
   socket.on('request_chemistry_report', (data) => {
+    const uid = extractId(data.userId);
     const roomData = activeRooms[data.room];
-    if (roomData && data.userId) {
-      roomData.userIds.add(data.userId);
+    if (roomData && uid) {
+      roomData.userIds.add(uid);
     }
   });
 
-  socket.on('request_my_records', async (userId) => {
+  socket.on('request_my_records', async (data) => {
     try {
-      if (!userId) return;
-      const myRecords = await Report.find({ userIds: userId })
+      const uid = extractId(data);
+      if (!uid) return;
+      const myRecords = await Report.find({ userIds: uid })
                                     .sort({ createdAt: -1 })
                                     .limit(20);
       socket.emit('receive_my_records', myRecords);
@@ -566,12 +591,12 @@ io.on('connection', (socket) => {
   socket.on('join_lounge', async (data) => {
     socket.join('open_lounge');
     
-    const userId = data?.userId || data;
-    if (!userId) return;
+    const uid = extractId(data?.userId || data);
+    if (!uid) return;
 
     let nickname = '익명의 소통러';
     try {
-      const user = await User.findOne({ userId });
+      const user = await User.findOne({ userId: uid });
       if (user) nickname = user.nickname;
     } catch(e) {}
     
@@ -590,7 +615,8 @@ io.on('connection', (socket) => {
   });
 
   socket.on('send_lounge_message', async (data) => {
-    if (!data.userId || !data.text) return;
+    const uid = extractId(data.userId);
+    if (!uid || !data.text) return;
     
     // ★ 신규 방어막: 광장 도배 쿨타임 (0.5초)
     const now = Date.now();
@@ -600,13 +626,13 @@ io.on('connection', (socket) => {
 
     let nickname = '익명의 소통러';
     try {
-      const user = await User.findOne({ userId: data.userId });
+      const user = await User.findOne({ userId: uid });
       if (user) nickname = user.nickname;
     } catch (err) {}
     
     const cleanText = filterProfanity(data.text);
     const msg = { 
-      senderId: data.userId, 
+      senderId: uid, 
       nickname: nickname, 
       text: cleanText, 
       timestamp: Date.now(), 
