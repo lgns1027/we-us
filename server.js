@@ -169,7 +169,7 @@ function tryMatch(topicKey) {
       topic: topicKey, 
       userIds: new Set([user1.userId, user2.userId].filter(Boolean)),
       endTime: Date.now() + (180 * 1000),
-      // ★ 신규: 관전자 모드를 위한 역할 및 관전자 수 기록
+      // ★ 추가: 관전 모드를 위한 역할 및 관전자 수 기록
       roleA: role1,
       roleB: role2,
       spectators: new Set()
@@ -585,12 +585,11 @@ io.on('connection', (socket) => {
     io.to('open_lounge').emit('new_lounge_message', msg);
   });
 
-  // ★ 신규: 진행 중인 실시간 방 목록 프론트로 전송 (관전 모드 Phase 1)
+  // ★ 추가: 진행 중인 실시간 방 목록 프론트로 전송 (관전 모드 Phase 1)
   socket.on('request_live_rooms', () => {
     const liveRooms = [];
     for (const room in activeRooms) {
       const r = activeRooms[room];
-      // 다대다(실제 유저 매칭) 방만 리스트에 추가
       if (r.type === 'multi') {
         liveRooms.push({
           roomId: room,
@@ -604,6 +603,41 @@ io.on('connection', (socket) => {
     socket.emit('receive_live_rooms', liveRooms);
   });
 
+  // ★ 추가: 관전자로 입장하기
+  socket.on('join_as_spectator', (data) => {
+    const { roomId } = data;
+    const roomData = activeRooms[roomId];
+    if (roomData && roomData.type === 'multi') {
+      socket.join(roomId);
+      if (!roomData.spectators) roomData.spectators = new Set();
+      roomData.spectators.add(socket.id);
+      socket.spectatingRoom = roomId;
+
+      socket.emit('spectator_joined', {
+        history: roomData.history,
+        topic: roomData.topic,
+        roleA: roomData.roleA,
+        roleB: roomData.roleB,
+        spectatorCount: roomData.spectators.size
+      });
+      io.to(roomId).emit('spectator_count_update', { count: roomData.spectators.size });
+    }
+  });
+
+  // ★ 추가: 관전자 나가기
+  socket.on('leave_spectator', (data) => {
+    const { roomId } = data;
+    const roomData = activeRooms[roomId];
+    if (roomData) {
+      socket.leave(roomId);
+      if (roomData.spectators) {
+        roomData.spectators.delete(socket.id);
+        io.to(roomId).emit('spectator_count_update', { count: roomData.spectators.size });
+      }
+    }
+    socket.spectatingRoom = null;
+  });
+
   socket.on('disconnect', () => {
     if (socket.loungeNickname) {
       const count = (io.sockets.adapter.rooms.get('open_lounge')?.size || 1) - 1;
@@ -615,8 +649,17 @@ io.on('connection', (socket) => {
       waitingQueues[socket.queueTopic][targetQueue] = waitingQueues[socket.queueTopic][targetQueue].filter(s => s.id !== socket.id);
     }
 
-    // ★ 신규 방어막: 연결 튕김(비정상 종료) 10초 유예
-    if (socket.roomName && activeRooms[socket.roomName]) {
+    // ★ 추가: 튕겼을 때 관전방에서도 정상적으로 나가기 처리
+    if (socket.spectatingRoom && activeRooms[socket.spectatingRoom]) {
+      const roomData = activeRooms[socket.spectatingRoom];
+      if (roomData.spectators) {
+        roomData.spectators.delete(socket.id);
+        io.to(socket.spectatingRoom).emit('spectator_count_update', { count: roomData.spectators.size });
+      }
+    }
+
+    // ★ 튕김 방어막(10초 유예)
+    if (socket.roomName && activeRooms[socket.roomName] && !socket.spectatingRoom) {
       const room = socket.roomName;
       socket.to(room).emit('receive_message', { sender: 'System', text: `⚠️ 상대방의 연결이 불안정합니다. (10초 대기 중...)` });
       
@@ -697,7 +740,7 @@ setInterval(async () => {
   }
 }, 1000);
 
-// ★ 신규 방어막: 서버 메모리 누수 방지 청소기 (10분 주기)
+// ★ 서버 메모리 누수 방지 청소기 (10분 주기)
 setInterval(() => {
   const now = Date.now();
   console.log('🧹 [서버 청소] 좀비 방 및 메모리 정리 중...');

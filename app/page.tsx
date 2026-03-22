@@ -6,7 +6,10 @@ import LobbyView from './components/LobbyView';
 import RecordView from './components/RecordView';
 import ChatRoom from './components/ChatRoom';
 import ProfileView from './components/ProfileView';
-import LoungeRoom from './components/LoungeRoom';
+
+// ★ 추가: 관전 모드 컴포넌트 Import
+import SpectatorList from './components/SpectatorList';
+import SpectatorRoom from './components/SpectatorRoom';
 
 const SERVER_URL = 'https://we-us-backend.onrender.com';
 
@@ -29,7 +32,11 @@ export default function WeUsApp() {
   const [userId, setUserId] = useState<string>('');
   const [myReports, setMyReports] = useState<any[]>([]); 
 
-  const [step, setStep] = useState<'lobby' | 'role_select' | 'waiting' | 'chat' | 'lounge'>('lobby');
+  // ★ 변경: lounge 제거, spectator_list, spectator_room 추가
+  const [step, setStep] = useState<'lobby' | 'role_select' | 'waiting' | 'chat' | 'spectator_list' | 'spectator_room'>('lobby');
+  // ★ 추가: 관전할 방의 ID를 저장하는 상태
+  const [spectatorRoomId, setSpectatorRoomId] = useState<string | null>(null); 
+  
   const [timeLeft, setTimeLeft] = useState(180); 
   const [messages, setMessages] = useState<{ sender: string; text: string }[]>([]);
   const [room, setRoom] = useState('');
@@ -290,9 +297,13 @@ export default function WeUsApp() {
           <ProfileView userId={userId} tier={tier} personaTitle={pTitle} socketRef={socketRef} />
         )}
 
-        {/* ★ 변경점: 오픈광장(LoungeRoom)에 tier 변수를 props로 전달 */}
-        {step === 'lounge' && (
-          <LoungeRoom socketRef={socketRef} userId={userId} setStep={setStep} tier={tier} />
+        {/* ★ 추가/수정: 오픈광장 제거, 관전 목록 및 관전방 컴포넌트 연결 */}
+        {step === 'spectator_list' && (
+          <SpectatorList socketRef={socketRef} setStep={setStep} setSpectatorRoomId={setSpectatorRoomId} />
+        )}
+        
+        {step === 'spectator_room' && spectatorRoomId && (
+          <SpectatorRoom socketRef={socketRef} roomId={spectatorRoomId} setStep={setStep} />
         )}
 
         {step === 'role_select' && ROLE_MAP[selectedTopic] && (
