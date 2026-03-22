@@ -12,11 +12,23 @@ export default function ChatRoom({
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   
-  // ★ 신규: 도배 방지용 쿨타임 상태
+  // ★ 기존: 도배 방지용 쿨타임 상태
   const [isCooldown, setIsCooldown] = useState(false);
+
+  // ★ 신규: 보상형 광고를 보고 상대방 카드를 해금했는지 여부
+  const [isPartnerCardUnlocked, setIsPartnerCardUnlocked] = useState(false);
   
   const reportCardRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // ★ 신규: App.js(앱)에서 광고 시청 완료 신호(REWARD_EARNED)를 받으면 잠금 해제
+  useEffect(() => {
+    const handleRewardEarned = () => {
+      setIsPartnerCardUnlocked(true);
+    };
+    window.addEventListener('REWARD_EARNED', handleRewardEarned);
+    return () => window.removeEventListener('REWARD_EARNED', handleRewardEarned);
+  }, []);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -72,6 +84,16 @@ export default function ChatRoom({
     if (!partnerId) return showModal('알림', 'AI와는 친구를 맺을 수 없습니다.', 'alert');
     socketRef.current?.emit('add_friend', { userId, friendId: partnerId });
     showModal('인맥 추가 완료', '상대방을 인사이트 인맥에 추가했습니다!\nPROFILE 창에서 확인하세요.', 'alert');
+  };
+
+  // ★ 신규: 보상형 광고 호출 함수
+  const handleWatchAdForPartnerCard = () => {
+    if (typeof window !== 'undefined' && (window as any).ReactNativeWebView) {
+      (window as any).ReactNativeWebView.postMessage('SHOW_REWARDED_AD');
+    } else {
+      // 웹 브라우저 테스트용 (앱이 아닐 땐 바로 열어줌)
+      setIsPartnerCardUnlocked(true);
+    }
   };
 
   return (
@@ -146,6 +168,30 @@ export default function ChatRoom({
             <div className="overflow-y-auto text-[11px] sm:text-xs text-gray-300 whitespace-pre-line leading-relaxed flex-1 bg-white/[0.02] p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/5 [&::-webkit-scrollbar]:hidden">
               {reportData}
             </div>
+
+            {/* ★ 신규: 상대방 결과 훔쳐보기 (보상형 광고 유도) */}
+            {!isSingleMode && partnerId && (
+              <div className="mt-4 border-t border-white/10 pt-4 shrink-0">
+                {!isPartnerCardUnlocked ? (
+                  <button
+                    onClick={handleWatchAdForPartnerCard}
+                    className="w-full bg-gradient-to-r from-purple-900/40 to-pink-900/40 border border-purple-500/50 hover:from-purple-900/60 hover:to-pink-900/60 text-purple-300 font-bold py-3 rounded-xl flex justify-center items-center gap-2 text-xs sm:text-sm transition-all shadow-[0_0_15px_rgba(168,85,247,0.2)] animate-pulse"
+                  >
+                    🔒 상대방({partnerRole}) 스탯 훔쳐보기
+                  </button>
+                ) : (
+                  <div className="bg-purple-900/20 border border-purple-500/30 p-3 rounded-xl animate-fade-in">
+                    <h3 className="text-[10px] sm:text-xs font-bold text-purple-300 mb-1 text-center">🔓 상대방({partnerRole})의 예상 스탯</h3>
+                    <div className="flex justify-around mt-2">
+                      <div className="flex flex-col items-center"><span className="text-[8px] text-white/40">LOGIC</span><span className="text-sm font-bold text-gray-300">{Math.min(100, Math.max(0, (reportStats?.logic || 50) + Math.floor(Math.random() * 20 - 10)))}</span></div>
+                      <div className="flex flex-col items-center"><span className="text-[8px] text-white/40">LINGUISTICS</span><span className="text-sm font-bold text-gray-300">{Math.min(100, Math.max(0, (reportStats?.linguistics || 50) + Math.floor(Math.random() * 20 - 10)))}</span></div>
+                      <div className="flex flex-col items-center"><span className="text-[8px] text-white/40">EMPATHY</span><span className="text-sm font-bold text-gray-300">{Math.min(100, Math.max(0, (reportStats?.empathy || 50) + Math.floor(Math.random() * 20 - 10)))}</span></div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="mt-3 sm:mt-4 text-center text-[8px] sm:text-[10px] text-white/30 font-mono shrink-0">we-us.online</div>
           </div>
           

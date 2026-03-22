@@ -86,6 +86,19 @@ const rateLimits = new Map();
 let globalScoreT = 0;
 let globalScoreF = 0;
 
+// ==========================================
+// ★ 신규 추가: 서버 주도형 동적 이벤트 설정 (여기만 바꾸면 앱 전체 반영)
+// ==========================================
+const CURRENT_EVENT = {
+  topic: "🔥 MBTI 멸망전: T vs F",
+  desc: "주말 한정 스페셜 큐 오픈! 이긴 진영의 점수가 누적됩니다.",
+  roleA: "극T (팩트폭행)",
+  roleB: "극F (감성공감)",
+  missionA: "당신은 지독한 T입니다. 감정 호소는 집어치우고 오직 팩트와 논리로만 상대방의 주장을 박살내세요.",
+  missionB: "당신은 지독한 F입니다. 차가운 논리보다는 인간적인 공감과 따뜻한 감성으로 상대방의 마음을 흔드세요.",
+  aiPrompt: "상대방의 논리나 감성적 주장을 완벽하게 타파하세요."
+};
+
 // ★ AI 답변 끊김 방지를 위해 maxTokens를 300으로 설정
 async function getGoogleAIResponse(systemPrompt, history, maxTokens = 300) {
   // ★ 대표님 지시사항: 12b -> 27b -> 4b 순서 유지
@@ -146,6 +159,11 @@ function getPersonaPrompt(topic, isReport = false, partnerRole = '') {
   // "진상손님:" 같이 이름표를 붙여서 도배되는 현상 절대 금지 규칙 추가
   const baseConstraint = `\n\n[절대 규칙]: 절대 상대방을 비하하거나 모욕적인 도발을 하지 마세요. 예의를 갖추되 역할에 몰입하세요. 대답할 때 당신의 이름표(예: "${partnerRole}:")를 텍스트 맨 앞에 절대 붙이지 마세요. 반드시 1~2문장 이내(최대 50자 내외)로 자연스럽게 마침표로 끝나는 완성된 문장만 출력하세요. 말이 중간에 끊기면 안 됩니다.`;
 
+  // ★ 변경점: 동적 이벤트를 위한 조건문 수정
+  if (topic === CURRENT_EVENT.topic) {
+    return `당신은 '${partnerRole}' 입장에서 토론합니다. ` + CURRENT_EVENT.aiPrompt + baseConstraint;
+  }
+
   switch(topic) {
     case '진상손님 방어전':
       return `당신은 '${partnerRole}' 역할을 맡았습니다. 진상 손님이라면 까다롭고 집요하게 환불이나 서비스를 요구하세요. 알바생이라면 매뉴얼에 따라 단호하지만 정중하게 방어하세요.` + baseConstraint;
@@ -153,8 +171,6 @@ function getPersonaPrompt(topic, isReport = false, partnerRole = '') {
       return `당신은 '${partnerRole}' 역할을 맡았습니다. 면접관이라면 지원자의 논리적 허점을 파고드는 정중하고 예리한 꼬리질문을 하세요. 지원자라면 긴장하지 않고 본인의 논리를 차분히 어필하세요.` + baseConstraint;
     case '100억 받기 VS 무병장수':
       return `당신은 '${partnerRole}' 입장에서 토론합니다. 상대의 의견에 정중하게 반박하고 당신의 선택이 가진 가치를 논리적으로 설득하세요.` + baseConstraint;
-    case '🔥 MBTI 멸망전: T vs F':
-      return `당신은 '${partnerRole}' 입장에서 토론합니다. 상대방의 논리나 감성적 주장을 완벽하게 타파하세요.` + baseConstraint;
     default:
       return `당신은 '${partnerRole}' 역할을 맡은 대화 파트너입니다. 상호 존중하며 흥미롭고 편안한 대화를 이끌어주세요.` + baseConstraint;
   }
@@ -175,7 +191,7 @@ function tryMatch(topicKey) {
       topic: topicKey, 
       userIds: new Set([user1.userId, user2.userId].filter(Boolean)),
       endTime: Date.now() + (180 * 1000),
-      // ★ Phase 2 추가: 관전자 모드를 위한 역할 및 관전자 수, 투표 기록
+      // ★ 관전자 모드를 위한 역할 및 관전자 수, 실시간 투표수 기록
       roleA: role1,
       roleB: role2,
       spectators: new Set(),
@@ -214,8 +230,12 @@ function tryMatch(topicKey) {
 
 io.on('connection', (socket) => {
 
-  // ★ Phase 3 추가: 유저가 서버에 최초 접속할 때 글로벌 점수를 바로 쏴줌
-  socket.emit('faction_score_update', { T: globalScoreT, F: globalScoreF });
+  // ★ 변경점: 로비 진입 시 글로벌 스코어와 함께 서버에 설정된 CURRENT_EVENT(동적 이벤트 정보)를 같이 쏴줌
+  socket.emit('faction_score_update', { 
+    T: globalScoreT, 
+    F: globalScoreF, 
+    currentEvent: CURRENT_EVENT 
+  });
 
   // ★ 푸시 토큰 등록 소켓 (앱에서 보낸 토큰을 DB에 저장)
   socket.on('register_push_token', async ({ userId, token }) => {
@@ -232,12 +252,12 @@ io.on('connection', (socket) => {
   socket.on('get_profile', async (userId) => {
     try {
       if (!userId) return;
-      // ★ 초기화 방지: findOneAndUpdate를 사용하여 안전하게 조회 및 생성 (upsert)
-      const user = await User.findOneAndUpdate(
-        { userId },
-        { $setOnInsert: { userId } },
-        { new: true, upsert: true }
-      );
+      
+      // ★ 닉네임 버그 완벽 패치: findOneAndUpdate 덮어쓰기 현상 원천 차단
+      let user = await User.findOne({ userId: userId });
+      if (!user) {
+        user = await User.create({ userId: userId, nickname: '익명의 소통러' });
+      }
       
       const friendsData = await User.find({ userId: { $in: user.friends } }).select('userId nickname');
       socket.emit('receive_profile', { nickname: user.nickname, friends: friendsData });
@@ -250,12 +270,16 @@ io.on('connection', (socket) => {
     try {
       if (!data.userId || !data.nickname) return;
       
-      // ★ 닉네임 초기화 버그 픽스: $set을 이용해 명확히 업데이트하고 덮어쓰기 방지
-      const user = await User.findOneAndUpdate(
-        { userId: data.userId },
-        { $set: { nickname: data.nickname } },
-        { new: true, upsert: true }
-      );
+      // ★ 닉네임 버그 완벽 패치: 명확하게 찾고, 수동으로 닉네임을 변경하여 저장
+      let user = await User.findOne({ userId: data.userId });
+      if (!user) {
+        user = await User.create({ userId: data.userId, nickname: data.nickname });
+      } else {
+        user.nickname = data.nickname;
+        await user.save();
+      }
+
+      socket.loungeNickname = data.nickname; // 현재 소켓 정보에도 저장
 
       const friendsData = await User.find({ userId: { $in: user.friends } }).select('userId nickname');
       socket.emit('receive_profile', { nickname: user.nickname, friends: friendsData });
@@ -714,14 +738,19 @@ setInterval(async () => {
       roomData.isGeneratingReport = true;
 
       // ★ Phase 3: 진영전 점수 판정 및 글로벌 누적 로직
-      if (roomData.topic === '🔥 MBTI 멸망전: T vs F') {
+      // ★ 동적 이벤트의 제목과 일치할 때 점수 누적 처리
+      if (roomData.topic === CURRENT_EVENT.topic) {
         const votesA = roomData.votesA || 0;
         const votesB = roomData.votesB || 0;
         if (votesA > votesB) globalScoreT += 10;
         else if (votesB > votesA) globalScoreF += 10;
-        else { globalScoreT += 5; globalScoreF += 5; } // 동점
+        else { globalScoreT += 5; globalScoreF += 5; } // 동점 처리
         
-        io.emit('faction_score_update', { T: globalScoreT, F: globalScoreF });
+        io.emit('faction_score_update', { 
+          T: globalScoreT, 
+          F: globalScoreF,
+          currentEvent: CURRENT_EVENT
+        });
       }
 
       if (roomData.history.length < 4) {
@@ -730,10 +759,13 @@ setInterval(async () => {
       }
       
       const systemPrompt = getPersonaPrompt(roomData.topic, true);
+      
+      // 싱글 모드 DB 저장 시 객체 데이터 에러 방지 처리 추가
       const conversationText = roomData.type === 'single'
         ? roomData.history.map(msg => `${msg.role === 'user' ? '나' : '상대방'}: ${msg.content}`).join('\n')
         : roomData.history.join('\n');
       
+      // API 토큰 최적화를 위해 maxTokens를 300으로 제한
       const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 300); 
       
       let logicScore = 50, linguisticsScore = 50, empathyScore = 50;
@@ -750,9 +782,14 @@ setInterval(async () => {
       try {
         if (!reportContent.includes("불안정하여")) {
           await Report.create({
-            roomName: room, userIds: Array.from(roomData.userIds), type: roomData.type, topic: roomData.topic, participants: roomData.participants, 
+            roomName: room, 
+            userIds: Array.from(roomData.userIds), 
+            type: roomData.type,
+            topic: roomData.topic, 
+            participants: roomData.participants, 
             fullLog: roomData.type === 'single' ? roomData.history.map(m => m.content) : roomData.history,
-            aiReport: cleanReportText, stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore }
+            aiReport: cleanReportText, 
+            stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore }
           });
         }
       } catch (dbError) {}
@@ -761,7 +798,8 @@ setInterval(async () => {
         io.to(room).emit('receive_report', { error: true });
       } else {
         io.to(room).emit('receive_report', { 
-          reportText: cleanReportText, stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore },
+          reportText: cleanReportText, 
+          stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore },
           partnerId: Array.from(roomData.userIds).find(id => id !== null) 
         });
       }
@@ -769,20 +807,25 @@ setInterval(async () => {
   }
 }, 1000);
 
+// ★ 서버 메모리 누수 방지 청소기 (10분 주기)
 setInterval(() => {
   const now = Date.now();
+  console.log('🧹 [서버 청소] 좀비 방 및 메모리 정리 중...');
+  
   for (const room in activeRooms) {
-    if (now > activeRooms[room].endTime + 600000) { 
+    if (now > activeRooms[room].endTime + 600000) { // 종료 후 10분 지난 방 삭제
       delete activeRooms[room];
       delete roomVotes[room];
     }
   }
+  
   for (const topic in waitingQueues) {
     ['roleA', 'roleB', 'random'].forEach(q => {
       waitingQueues[topic][q] = waitingQueues[topic][q].filter(s => s.socket.connected);
     });
   }
-  rateLimits.clear();
+  
+  rateLimits.clear(); // 도배 방지 맵 초기화
 }, 10 * 60 * 1000);
 
 const PORT = process.env.PORT || 10000;
