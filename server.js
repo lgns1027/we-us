@@ -231,43 +231,35 @@ io.on('connection', (socket) => {
   // --- [V2: 프로필 & 친구 관리] ---
   socket.on('get_profile', async (userId) => {
     try {
-      // 프론트에서 객체로 넘어올 경우 방어
-      const uid = typeof userId === 'object' ? userId.userId : userId;
-      if (!uid) return;
-      
-      // ★ 닉네임 버그 완벽 수정: findOneAndUpdate의 $setOnInsert 오작동 제거, 순수 findOne 사용
-      let user = await User.findOne({ userId: uid });
-      if (!user) {
-        user = await User.create({ userId: uid, nickname: '익명의 소통러' });
-      }
+      if (!userId) return;
+      // ★ 초기화 방지: findOneAndUpdate를 사용하여 안전하게 조회 및 생성 (upsert)
+      const user = await User.findOneAndUpdate(
+        { userId },
+        { $setOnInsert: { userId } },
+        { new: true, upsert: true }
+      );
       
       const friendsData = await User.find({ userId: { $in: user.friends } }).select('userId nickname');
       socket.emit('receive_profile', { nickname: user.nickname, friends: friendsData });
     } catch (err) {
-      console.error("❌ [get_profile 에러]:", err);
+      console.error(err);
     }
   });
 
   socket.on('update_nickname', async (data) => {
     try {
-      const { userId, nickname } = data;
-      if (!userId || !nickname) return;
+      if (!data.userId || !data.nickname) return;
       
-      // ★ 닉네임 버그 완벽 수정: 명확하게 찾고, 명확하게 저장 (캐싱 무시)
-      let user = await User.findOne({ userId });
-      if (!user) {
-        user = await User.create({ userId, nickname });
-      } else {
-        user.nickname = nickname;
-        await user.save();
-      }
-
-      // 현재 소켓에 붙어있는 닉네임 정보도 즉시 업데이트 (광장 등에서 곧바로 적용되도록)
-      socket.loungeNickname = nickname;
+      // ★ 닉네임 초기화 버그 픽스: $set을 이용해 명확히 업데이트하고 덮어쓰기 방지
+      const user = await User.findOneAndUpdate(
+        { userId: data.userId },
+        { $set: { nickname: data.nickname } },
+        { new: true, upsert: true }
+      );
 
       const friendsData = await User.find({ userId: { $in: user.friends } }).select('userId nickname');
       socket.emit('receive_profile', { nickname: user.nickname, friends: friendsData });
-      console.log(`✅ [닉네임 변경 및 고정 완료] ${userId} -> ${user.nickname}`);
+      console.log(`✅ [닉네임 변경 완료] ${data.userId} -> ${user.nickname}`);
     } catch (err) {
       console.error("❌ [닉네임 변경 에러]:", err);
     }
@@ -604,7 +596,7 @@ io.on('connection', (socket) => {
     io.to('open_lounge').emit('new_lounge_message', msg);
   });
 
-  // ★ Phase 1: 진행 중인 실시간 방 목록 프론트로 전송
+  // ★ 추가: 진행 중인 실시간 방 목록 프론트로 전송 (관전 모드 Phase 1)
   socket.on('request_live_rooms', () => {
     const liveRooms = [];
     for (const room in activeRooms) {
@@ -622,7 +614,7 @@ io.on('connection', (socket) => {
     socket.emit('receive_live_rooms', liveRooms);
   });
 
-  // ★ Phase 1 & 2: 관전자로 입장하기 (입장 시 투표 현황도 전달)
+  // ★ 추가: 관전자로 입장하기 (입장 시 투표 현황도 전달)
   socket.on('join_as_spectator', (data) => {
     const { roomId } = data;
     const roomData = activeRooms[roomId];
@@ -721,13 +713,13 @@ setInterval(async () => {
     if (now >= roomData.endTime && !roomData.isGeneratingReport) {
       roomData.isGeneratingReport = true;
 
-      // ★ Phase 3: 진영전 점수 판정 및 글로벌 누적
+      // ★ Phase 3: 진영전 점수 판정 및 글로벌 누적 로직
       if (roomData.topic === '🔥 MBTI 멸망전: T vs F') {
         const votesA = roomData.votesA || 0;
         const votesB = roomData.votesB || 0;
         if (votesA > votesB) globalScoreT += 10;
         else if (votesB > votesA) globalScoreF += 10;
-        else { globalScoreT += 5; globalScoreF += 5; } // 동점 처리
+        else { globalScoreT += 5; globalScoreF += 5; } // 동점
         
         io.emit('faction_score_update', { T: globalScoreT, F: globalScoreF });
       }
@@ -738,13 +730,10 @@ setInterval(async () => {
       }
       
       const systemPrompt = getPersonaPrompt(roomData.topic, true);
-      
-      // 싱글 모드 DB 저장 시 객체 데이터 에러 방지 처리 추가
       const conversationText = roomData.type === 'single'
         ? roomData.history.map(msg => `${msg.role === 'user' ? '나' : '상대방'}: ${msg.content}`).join('\n')
         : roomData.history.join('\n');
       
-      // API 토큰 최적화를 위해 maxTokens를 300으로 제한
       const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 300); 
       
       let logicScore = 50, linguisticsScore = 50, empathyScore = 50;
@@ -761,14 +750,9 @@ setInterval(async () => {
       try {
         if (!reportContent.includes("불안정하여")) {
           await Report.create({
-            roomName: room, 
-            userIds: Array.from(roomData.userIds), 
-            type: roomData.type,
-            topic: roomData.topic, 
-            participants: roomData.participants, 
+            roomName: room, userIds: Array.from(roomData.userIds), type: roomData.type, topic: roomData.topic, participants: roomData.participants, 
             fullLog: roomData.type === 'single' ? roomData.history.map(m => m.content) : roomData.history,
-            aiReport: cleanReportText, 
-            stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore }
+            aiReport: cleanReportText, stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore }
           });
         }
       } catch (dbError) {}
@@ -777,8 +761,7 @@ setInterval(async () => {
         io.to(room).emit('receive_report', { error: true });
       } else {
         io.to(room).emit('receive_report', { 
-          reportText: cleanReportText, 
-          stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore },
+          reportText: cleanReportText, stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore },
           partnerId: Array.from(roomData.userIds).find(id => id !== null) 
         });
       }
@@ -786,25 +769,20 @@ setInterval(async () => {
   }
 }, 1000);
 
-// ★ 서버 메모리 누수 방지 청소기 (10분 주기)
 setInterval(() => {
   const now = Date.now();
-  console.log('🧹 [서버 청소] 좀비 방 및 메모리 정리 중...');
-  
   for (const room in activeRooms) {
-    if (now > activeRooms[room].endTime + 600000) { // 종료 후 10분 지난 방 삭제
+    if (now > activeRooms[room].endTime + 600000) { 
       delete activeRooms[room];
       delete roomVotes[room];
     }
   }
-  
   for (const topic in waitingQueues) {
     ['roleA', 'roleB', 'random'].forEach(q => {
       waitingQueues[topic][q] = waitingQueues[topic][q].filter(s => s.socket.connected);
     });
   }
-  
-  rateLimits.clear(); // 도배 방지 맵 초기화
+  rateLimits.clear();
 }, 10 * 60 * 1000);
 
 const PORT = process.env.PORT || 10000;
