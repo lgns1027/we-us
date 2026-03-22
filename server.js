@@ -79,6 +79,9 @@ const activeRooms = {};
 const roomVotes = {};
 const openLoungeHistory = []; // ★ 신규: 광장 대화 내역 저장 (최대 100개 유지)
 
+// ★ 신규: 서버 부하 방지용 도배 쿨타임(Rate Limit) 맵
+const rateLimits = new Map();
+
 // ★ AI 답변 끊김 방지를 위해 maxTokens를 300으로 설정
 async function getGoogleAIResponse(systemPrompt, history, maxTokens = 300) {
   // ★ 대표님 지시사항: 12b -> 27b -> 4b 순서 유지
@@ -199,7 +202,7 @@ function tryMatch(topicKey) {
 
 io.on('connection', (socket) => {
 
-  // ★ 푸시 토큰 등록 소켓
+  // ★ 푸시 토큰 등록 소켓 (앱에서 보낸 토큰을 DB에 저장)
   socket.on('register_push_token', async ({ userId, token }) => {
     try {
       if (!userId || !token) return;
@@ -404,6 +407,12 @@ io.on('connection', (socket) => {
   });
 
   socket.on('send_message', async (data) => {
+    // ★ 신규 방어막: 1:1 채팅 도배 쿨타임 (0.5초)
+    const now = Date.now();
+    const lastMsgTime = rateLimits.get(socket.id) || 0;
+    if (now - lastMsgTime < 500) return; 
+    rateLimits.set(socket.id, now);
+
     const roomData = activeRooms[data.room || data.roomId];
     if (!roomData) return;
 
@@ -518,7 +527,6 @@ io.on('connection', (socket) => {
   socket.on('join_lounge', async (data) => {
     socket.join('open_lounge');
     
-    // ★ 빈 아이디 방어막
     const userId = data?.userId || data;
     if (!userId) return;
 
@@ -531,17 +539,12 @@ io.on('connection', (socket) => {
     socket.loungeNickname = nickname;
     socket.emit('init_lounge', openLoungeHistory);
 
-    // ★ 입장 알림 시스템 메시지 렌더링 삭제
-
     const count = io.sockets.adapter.rooms.get('open_lounge')?.size || 1;
     io.to('open_lounge').emit('lounge_meta', { userCount: count });
-    
-    console.log(`🌍 [광장 입장] ${nickname} (현재 ${count}명)`);
   });
 
   socket.on('leave_lounge', () => {
     socket.leave('open_lounge');
-    // ★ 퇴장 알림 시스템 메시지 렌더링 삭제
     
     const count = io.sockets.adapter.rooms.get('open_lounge')?.size || 0;
     io.to('open_lounge').emit('lounge_meta', { userCount: count });
@@ -550,9 +553,14 @@ io.on('connection', (socket) => {
   socket.on('send_lounge_message', async (data) => {
     if (!data.userId || !data.text) return;
     
+    // ★ 신규 방어막: 광장 도배 쿨타임 (0.5초)
+    const now = Date.now();
+    const lastMsgTime = rateLimits.get(socket.id) || 0;
+    if (now - lastMsgTime < 500) return; 
+    rateLimits.set(socket.id, now);
+
     let nickname = '익명의 소통러';
     try {
-      // ★ DB 연결 에러나 지연 시에도 메시지가 증발하지 않도록 안전 구역(try-catch)에 고립
       const user = await User.findOne({ userId: data.userId });
       if (user) nickname = user.nickname;
     } catch (err) {}
@@ -575,7 +583,6 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     if (socket.loungeNickname) {
-      // ★ 연결 끊김 알림 시스템 메시지 렌더링 삭제
       const count = (io.sockets.adapter.rooms.get('open_lounge')?.size || 1) - 1;
       io.to('open_lounge').emit('lounge_meta', { userCount: Math.max(0, count) });
     }
@@ -583,7 +590,20 @@ io.on('connection', (socket) => {
     if (socket.queueTopic && waitingQueues[socket.queueTopic]) {
       const targetQueue = socket.queueRole === 'A' ? 'roleA' : socket.queueRole === 'B' ? 'roleB' : 'random';
       waitingQueues[socket.queueTopic][targetQueue] = waitingQueues[socket.queueTopic][targetQueue].filter(s => s.id !== socket.id);
-      console.log(`📉 [대기열 이탈(연결끊김)] 유저: ${socket.id}`);
+    }
+
+    // ★ 신규 방어막: 연결 튕김(비정상 종료) 10초 유예
+    if (socket.roomName && activeRooms[socket.roomName]) {
+      const room = socket.roomName;
+      socket.to(room).emit('receive_message', { sender: 'System', text: `⚠️ 상대방의 연결이 불안정합니다. (10초 대기 중...)` });
+      
+      setTimeout(() => {
+        if (activeRooms[room]) {
+          io.to(room).emit('partner_left');
+          delete activeRooms[room];
+          if (roomVotes[room]) delete roomVotes[room];
+        }
+      }, 10000);
     }
   });
 });
@@ -599,22 +619,18 @@ setInterval(async () => {
     
     if (now >= roomData.endTime && !roomData.isGeneratingReport) {
       roomData.isGeneratingReport = true;
-      console.log(`⏱️ [서버 타이머] ${room} 대화 종료. AI 판정 리포트 생성 시작...`);
 
       if (roomData.history.length < 4) {
         io.to(room).emit('receive_report', { error: true });
-        console.log(`⚠️ [리포트 스킵] ${room} 대화 기록 부족`);
         continue;
       }
       
       const systemPrompt = getPersonaPrompt(roomData.topic, true);
       
-      // 싱글 모드 DB 저장 시 객체 데이터 에러 방지 처리 추가
       const conversationText = roomData.type === 'single'
         ? roomData.history.map(msg => `${msg.role === 'user' ? '나' : '상대방'}: ${msg.content}`).join('\n')
         : roomData.history.join('\n');
       
-      // API 토큰 최적화를 위해 maxTokens를 300으로 제한
       const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 300); 
       
       let logicScore = 50, linguisticsScore = 50, empathyScore = 50;
@@ -640,11 +656,8 @@ setInterval(async () => {
             aiReport: cleanReportText, 
             stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore }
           });
-          console.log(`💾 [DB 저장 완료] ${room} 리포트 저장 성공`);
         }
-      } catch (dbError) {
-        console.error("❌ [DB 저장 에러]:", dbError);
-      }
+      } catch (dbError) {}
 
       if (reportContent.includes("불안정하여")) {
         io.to(room).emit('receive_report', { error: true });
@@ -658,6 +671,27 @@ setInterval(async () => {
     }
   }
 }, 1000);
+
+// ★ 신규 방어막: 서버 메모리 누수 방지 청소기 (10분 주기)
+setInterval(() => {
+  const now = Date.now();
+  console.log('🧹 [서버 청소] 좀비 방 및 메모리 정리 중...');
+  
+  for (const room in activeRooms) {
+    if (now > activeRooms[room].endTime + 600000) { // 종료 후 10분 지난 방 삭제
+      delete activeRooms[room];
+      delete roomVotes[room];
+    }
+  }
+  
+  for (const topic in waitingQueues) {
+    ['roleA', 'roleB', 'random'].forEach(q => {
+      waitingQueues[topic][q] = waitingQueues[topic][q].filter(s => s.socket.connected);
+    });
+  }
+  
+  rateLimits.clear(); // 도배 방지 맵 초기화
+}, 10 * 60 * 1000);
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, '0.0.0.0', () => console.log(`🚀 WE US 서버 구동 완료 (포트: ${PORT})`));

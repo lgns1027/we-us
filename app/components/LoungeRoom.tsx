@@ -4,10 +4,10 @@ export default function LoungeRoom({ socketRef, userId, setStep, tier }: any) {
   const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
   const [userCount, setUserCount] = useState(1);
+  const [isCooldown, setIsCooldown] = useState(false); // ★ 쿨타임 상태 추가
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // ★ 핵심 수정: userId가 세팅되기 전에는 서버에 빈 값으로 입장하지 않도록 방어
     if (!userId) return;
 
     socketRef.current?.emit('join_lounge', { userId, tier });
@@ -30,7 +30,7 @@ export default function LoungeRoom({ socketRef, userId, setStep, tier }: any) {
       socketRef.current?.off('new_lounge_message');
       socketRef.current?.off('lounge_meta');
     };
-  }, [socketRef, userId, tier]); // 의존성 배열 유지
+  }, [socketRef, userId, tier]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -41,7 +41,12 @@ export default function LoungeRoom({ socketRef, userId, setStep, tier }: any) {
 
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim()) return;
+    if (!inputText.trim() || isCooldown) return;
+    
+    // ★ 쿨타임 적용
+    setIsCooldown(true);
+    setTimeout(() => setIsCooldown(false), 500);
+
     socketRef.current?.emit('send_lounge_message', { userId, text: inputText, tier });
     setInputText('');
   };
@@ -110,10 +115,10 @@ export default function LoungeRoom({ socketRef, userId, setStep, tier }: any) {
         <div ref={messagesEndRef} className="h-2" />
       </div>
 
-      {/* 입력 폼 */}
+      {/* 입력 폼 (쿨타임 비활성화 추가) */}
       <form onSubmit={sendMessage} className="p-3 bg-[#050505] border-t border-white/5 flex gap-2 shrink-0">
-        <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} placeholder="모두에게 인사해보세요..." className="flex-1 bg-white/5 text-white px-4 py-3 rounded-xl outline-none text-[13px] focus:bg-white/10 transition-colors" />
-        <button type="submit" disabled={!inputText.trim()} className="bg-white text-black px-5 rounded-xl font-bold text-sm disabled:opacity-50">전송</button>
+        <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} disabled={isCooldown} placeholder="모두에게 인사해보세요..." className="flex-1 bg-white/5 text-white px-4 py-3 rounded-xl outline-none text-[13px] focus:bg-white/10 transition-colors" />
+        <button type="submit" disabled={!inputText.trim() || isCooldown} className="bg-white text-black px-5 rounded-xl font-bold text-sm disabled:opacity-50">전송</button>
       </form>
     </div>
   );

@@ -12,6 +12,9 @@ export default function ChatRoom({
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   
+  // ★ 신규: 도배 방지용 쿨타임 상태
+  const [isCooldown, setIsCooldown] = useState(false);
+  
   const reportCardRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -24,7 +27,12 @@ export default function ChatRoom({
 
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || !room) return;
+    if (!inputText.trim() || !room || isCooldown) return;
+    
+    // ★ 쿨타임 발동 (0.5초간 전송 금지)
+    setIsCooldown(true);
+    setTimeout(() => setIsCooldown(false), 500);
+
     setMessages((prev: any) => [...prev, { sender: myRole || '나', text: inputText }]);
     socketRef.current?.emit('send_message', { room: room, roomId: room, text: inputText, partner: partnerRole });
     setInputText('');
@@ -120,7 +128,6 @@ export default function ChatRoom({
         </div>
       )}
 
-      {/* 리포트 결과 카드 - 소형폰에서 넘치지 않게 내부 스크롤 적용 */}
       {reportData && !showAd && (
         <div className="absolute inset-0 bg-[#050505]/95 flex flex-col items-center justify-center z-50 p-3 sm:p-4 backdrop-blur-xl">
           <div ref={reportCardRef} className="bg-[#0a0a0a] border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-6 w-full max-w-sm shadow-2xl flex flex-col max-h-[70vh]">
@@ -136,7 +143,6 @@ export default function ChatRoom({
 
             <h2 className="text-sm sm:text-lg font-light tracking-widest text-center mb-3 sm:mb-4 text-white shrink-0">{isSingleMode ? 'PERSONAL TUTORING' : 'CHEMISTRY ANALYSIS'}</h2>
             
-            {/* 한줄평 내용이 길어질 경우를 대비한 내부 스크롤 */}
             <div className="overflow-y-auto text-[11px] sm:text-xs text-gray-300 whitespace-pre-line leading-relaxed flex-1 bg-white/[0.02] p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/5 [&::-webkit-scrollbar]:hidden">
               {reportData}
             </div>
@@ -157,7 +163,6 @@ export default function ChatRoom({
         </div>
       )}
 
-      {/* 헤더 */}
       <div className="bg-white/[0.02] p-3 sm:p-4 flex justify-between items-center border-b border-white/5 shrink-0">
         <div className="flex flex-col gap-1 min-w-0 pr-2">
           <div className="flex items-center gap-1.5 sm:gap-2 overflow-hidden">
@@ -175,7 +180,6 @@ export default function ChatRoom({
         </div>
       </div>
 
-      {/* 채팅 내역 */}
       <div className="flex-1 p-3 sm:p-4 overflow-y-auto space-y-3 sm:space-y-4 flex flex-col [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         {messages.map((msg: any, idx: number) => (
           <div key={idx} className={`flex ${msg.sender === myRole || msg.sender === '나' ? 'justify-end' : msg.sender === 'System' ? 'justify-center' : 'justify-start'}`}>
@@ -205,9 +209,10 @@ export default function ChatRoom({
         </div>
       )}
 
+      {/* ★ 변경점: 쿨타임 중일 때 전송 버튼 비활성화 (isCooldown) */}
       <form onSubmit={sendMessage} className="p-2 sm:p-3 bg-[#050505] border-t border-white/5 flex gap-2 z-10 relative shrink-0">
-        <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} disabled={isAnalyzing || !!reportData || showAd} placeholder="메시지 입력..." className="flex-1 bg-white/5 text-white px-3 sm:px-4 py-2.5 sm:py-3 rounded-full outline-none text-xs sm:text-sm"/>
-        <button type="submit" disabled={isAnalyzing || !!reportData || showAd || !inputText.trim()} className="bg-white text-black w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-bold disabled:opacity-50 text-sm">↑</button>
+        <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} disabled={isAnalyzing || !!reportData || showAd || isCooldown} placeholder="메시지 입력..." className="flex-1 bg-white/5 text-white px-3 sm:px-4 py-2.5 sm:py-3 rounded-full outline-none text-xs sm:text-sm"/>
+        <button type="submit" disabled={isAnalyzing || !!reportData || showAd || !inputText.trim() || isCooldown} className="bg-white text-black w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-bold disabled:opacity-50 text-sm">↑</button>
       </form>
     </div>
   );
