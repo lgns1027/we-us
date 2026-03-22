@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-// ★ tier 프롭스 수신
 export default function LoungeRoom({ socketRef, userId, setStep, tier }: any) {
   const [messages, setMessages] = useState<any[]>([]);
   const [inputText, setInputText] = useState('');
@@ -8,7 +7,9 @@ export default function LoungeRoom({ socketRef, userId, setStep, tier }: any) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // ★ 광장 입장 시 서버로 userId와 함께 자신의 tier를 전송
+    // ★ 핵심 수정: userId가 세팅되기 전에는 서버에 빈 값으로 입장하지 않도록 방어
+    if (!userId) return;
+
     socketRef.current?.emit('join_lounge', { userId, tier });
     
     socketRef.current?.on('init_lounge', (history: any[]) => {
@@ -29,7 +30,7 @@ export default function LoungeRoom({ socketRef, userId, setStep, tier }: any) {
       socketRef.current?.off('new_lounge_message');
       socketRef.current?.off('lounge_meta');
     };
-  }, [socketRef, userId, tier]);
+  }, [socketRef, userId, tier]); // 의존성 배열 유지
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -41,7 +42,6 @@ export default function LoungeRoom({ socketRef, userId, setStep, tier }: any) {
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim()) return;
-    // ★ 메시지 보낼 때도 자신의 tier 정보를 같이 쏘기
     socketRef.current?.emit('send_lounge_message', { userId, text: inputText, tier });
     setInputText('');
   };
@@ -90,7 +90,6 @@ export default function LoungeRoom({ socketRef, userId, setStep, tier }: any) {
             const isMe = msg.senderId === userId;
             return (
               <div key={idx} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                {/* ★ 닉네임과 티어 뱃지 렌더링 영역 */}
                 {!isMe && (
                   <div className="flex items-center gap-1.5 mb-1 ml-1">
                     <span className="text-[10px] text-white/40 font-bold">{msg.nickname}</span>

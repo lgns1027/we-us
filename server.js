@@ -79,9 +79,9 @@ const activeRooms = {};
 const roomVotes = {};
 const openLoungeHistory = []; // ★ 신규: 광장 대화 내역 저장 (최대 100개 유지)
 
-// ★ AI 답변 끊김 방지를 위해 maxTokens 기본값을 300에서 800으로 상향
+// ★ AI 답변 끊김 방지를 위해 maxTokens를 300으로 설정
 async function getGoogleAIResponse(systemPrompt, history, maxTokens = 300) {
-  // ★ 대표님 절대 지시사항: Gemini 임의 변경 금지. 오직 Gemma 3 모델 3종만 순차 사용
+  // ★ 대표님 지시사항: 12b -> 27b -> 4b 순서 유지
   const modelsToTry = [
     "gemma-3-12b",
     "gemma-3-27b",
@@ -199,7 +199,7 @@ function tryMatch(topicKey) {
 
 io.on('connection', (socket) => {
 
-  // ★ 푸시 토큰 등록 소켓 (앱에서 보낸 토큰을 DB에 저장)
+  // ★ 푸시 토큰 등록 소켓
   socket.on('register_push_token', async ({ userId, token }) => {
     try {
       if (!userId || !token) return;
@@ -214,8 +214,12 @@ io.on('connection', (socket) => {
   socket.on('get_profile', async (userId) => {
     try {
       if (!userId) return;
-      let user = await User.findOne({ userId });
-      if (!user) user = await User.create({ userId });
+      // ★ 초기화 방지: findOneAndUpdate를 사용하여 안전하게 조회 및 생성 (upsert)
+      const user = await User.findOneAndUpdate(
+        { userId },
+        { $setOnInsert: { userId } },
+        { new: true, upsert: true }
+      );
       
       const friendsData = await User.find({ userId: { $in: user.friends } }).select('userId nickname');
       socket.emit('receive_profile', { nickname: user.nickname, friends: friendsData });
@@ -228,18 +232,14 @@ io.on('connection', (socket) => {
     try {
       if (!data.userId || !data.nickname) return;
       
-      // ★ 픽스: findOneAndUpdate 대신 findOne 후 save 방식으로 변경하여 확실하게 저장
-      let user = await User.findOne({ userId: data.userId });
-      if (!user) {
-        user = new User({ userId: data.userId, nickname: data.nickname });
-      } else {
-        user.nickname = data.nickname;
-      }
-      await user.save();
+      // ★ 닉네임 초기화 버그 픽스: $set을 이용해 명확히 업데이트하고 덮어쓰기 방지
+      const user = await User.findOneAndUpdate(
+        { userId: data.userId },
+        { $set: { nickname: data.nickname } },
+        { new: true, upsert: true }
+      );
 
       const friendsData = await User.find({ userId: { $in: user.friends } }).select('userId nickname');
-      
-      // 저장 완료 후 프론트에 즉시 다시 쏴주기
       socket.emit('receive_profile', { nickname: user.nickname, friends: friendsData });
       console.log(`✅ [닉네임 변경 완료] ${data.userId} -> ${user.nickname}`);
     } catch (err) {
@@ -514,30 +514,24 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ★ 변경점: 프론트에서 넘어온 tier 정보를 받아서 입장/메시지 객체에 포함시킴
+  // --- [오픈 광장 로직] ---
   socket.on('join_lounge', async (data) => {
     socket.join('open_lounge');
     
-    // data 객체에서 꺼내 쓰거나, 단순히 문자열 userId만 넘어왔을 때 방어
+    // ★ 빈 아이디 방어막
     const userId = data?.userId || data;
-    const tier = data?.tier || 'Unranked';
+    if (!userId) return;
 
     let nickname = '익명의 소통러';
-    if (userId) {
-      try {
-        const user = await User.findOne({ userId });
-        if (user) nickname = user.nickname;
-      } catch(e) {}
-    }
+    try {
+      const user = await User.findOne({ userId });
+      if (user) nickname = user.nickname;
+    } catch(e) {}
+    
     socket.loungeNickname = nickname;
-
     socket.emit('init_lounge', openLoungeHistory);
 
-    const tierText = tier !== 'Unranked' ? ` [${tier}]` : '';
-    const joinMsg = { senderId: 'system', nickname: 'System', text: `🎉 ${nickname}${tierText}님이 입장하셨습니다.`, timestamp: Date.now(), type: 'system' };
-    openLoungeHistory.push(joinMsg);
-    if (openLoungeHistory.length > 100) openLoungeHistory.shift();
-    io.to('open_lounge').emit('new_lounge_message', joinMsg);
+    // ★ 입장 알림 시스템 메시지 렌더링 삭제
 
     const count = io.sockets.adapter.rooms.get('open_lounge')?.size || 1;
     io.to('open_lounge').emit('lounge_meta', { userCount: count });
@@ -547,47 +541,41 @@ io.on('connection', (socket) => {
 
   socket.on('leave_lounge', () => {
     socket.leave('open_lounge');
-    
-    if (socket.loungeNickname) {
-      const leaveMsg = { senderId: 'system', nickname: 'System', text: `👋 ${socket.loungeNickname}님이 퇴장하셨습니다.`, timestamp: Date.now(), type: 'system' };
-      openLoungeHistory.push(leaveMsg);
-      if (openLoungeHistory.length > 100) openLoungeHistory.shift();
-      io.to('open_lounge').emit('new_lounge_message', leaveMsg);
-    }
+    // ★ 퇴장 알림 시스템 메시지 렌더링 삭제
     
     const count = io.sockets.adapter.rooms.get('open_lounge')?.size || 0;
     io.to('open_lounge').emit('lounge_meta', { userCount: count });
   });
 
-  // ★ 변경점: 메시지 발송 시 tier 정보 저장
   socket.on('send_lounge_message', async (data) => {
     if (!data.userId || !data.text) return;
+    
+    let nickname = '익명의 소통러';
     try {
+      // ★ DB 연결 에러나 지연 시에도 메시지가 증발하지 않도록 안전 구역(try-catch)에 고립
       const user = await User.findOne({ userId: data.userId });
-      const nickname = user ? user.nickname : '익명의 소통러';
-      const cleanText = filterProfanity(data.text);
-      
-      const msg = { 
-        senderId: data.userId, 
-        nickname: nickname, 
-        text: cleanText, 
-        timestamp: Date.now(), 
-        type: 'user',
-        tier: data.tier || 'Unranked'
-      };
-      
-      openLoungeHistory.push(msg);
-      if (openLoungeHistory.length > 100) openLoungeHistory.shift();
-      
-      io.to('open_lounge').emit('new_lounge_message', msg);
+      if (user) nickname = user.nickname;
     } catch (err) {}
+    
+    const cleanText = filterProfanity(data.text);
+    const msg = { 
+      senderId: data.userId, 
+      nickname: nickname, 
+      text: cleanText, 
+      timestamp: Date.now(), 
+      type: 'user',
+      tier: data.tier || 'Unranked'
+    };
+    
+    openLoungeHistory.push(msg);
+    if (openLoungeHistory.length > 100) openLoungeHistory.shift();
+    
+    io.to('open_lounge').emit('new_lounge_message', msg);
   });
 
   socket.on('disconnect', () => {
-    // ★ 광장 퇴장 처리 추가
     if (socket.loungeNickname) {
-      const leaveMsg = { senderId: 'system', nickname: 'System', text: `👋 ${socket.loungeNickname}님이 연결을 끊었습니다.`, timestamp: Date.now(), type: 'system' };
-      io.to('open_lounge').emit('new_lounge_message', leaveMsg);
+      // ★ 연결 끊김 알림 시스템 메시지 렌더링 삭제
       const count = (io.sockets.adapter.rooms.get('open_lounge')?.size || 1) - 1;
       io.to('open_lounge').emit('lounge_meta', { userCount: Math.max(0, count) });
     }
