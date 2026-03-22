@@ -6,8 +6,6 @@ import LobbyView from './components/LobbyView';
 import RecordView from './components/RecordView';
 import ChatRoom from './components/ChatRoom';
 import ProfileView from './components/ProfileView';
-
-// ★ 추가: 관전 모드 컴포넌트 Import
 import SpectatorList from './components/SpectatorList';
 import SpectatorRoom from './components/SpectatorRoom';
 
@@ -18,13 +16,20 @@ const ROLE_MAP: Record<string, { roleA: string, roleB: string }> = {
   '자본주의 생존기': { roleA: '자본주의 찬성론자', roleB: '자본주의 회의론자' },
   '최악의 이불킥 경험': { roleA: '썰 푸는 화자', roleB: '공감하는 리스너' },
   '진상손님 방어전': { roleA: '알바생', roleB: '진상손님' },
-  '압박 면접': { roleA: '지원자', roleB: '면접관' }
+  '압박 면접': { roleA: '지원자', roleB: '면접관' },
+  // ★ 신규 추가: 진영전 역할 매핑
+  '🔥 MBTI 멸망전: T vs F': { roleA: '극T (팩트폭행)', roleB: '극F (감성공감)' }
 };
 
 const ROLE_MISSIONS: Record<string, Record<string, string>> = {
   '압박 면접': { '지원자': "당신은 이력서에 '해외 영업 3년'이라 적었지만, 사실 워홀 3개월이 전부입니다. 3분간 방어하세요.", '면접관': "해외 영업 3년이라는데 철저한 거짓말 같습니다. 집요하게 꼬리 질문을 던지세요." },
   '진상손님 방어전': { '알바생': "당신은 카페 알바생입니다. 다 마신 얼음을 가져와 환불을 요구하는 손님을 방어하세요.", '진상손님': "당신은 돈이 아깝습니다. 얼음이 빨리 녹았다는 논리로 전액 환불을 받아내세요." },
-  '100억 받기 VS 무병장수': { '100억 선택': "당신은 100억을 선택했습니다. 무병장수를 고른 상대에게 돈 없는 장수는 저주라고 팩트폭행하세요.", '무병장수 선택': "당신은 무병장수를 선택했습니다. 건강을 잃으면 돈은 휴지조각이라고 상대를 압도하세요." }
+  '100억 받기 VS 무병장수': { '100억 선택': "당신은 100억을 선택했습니다. 무병장수를 고른 상대에게 돈 없는 장수는 저주라고 팩트폭행하세요.", '무병장수 선택': "당신은 무병장수를 선택했습니다. 건강을 잃으면 돈은 휴지조각이라고 상대를 압도하세요." },
+  // ★ 신규 추가: 진영전 미션
+  '🔥 MBTI 멸망전: T vs F': { 
+    '극T (팩트폭행)': "당신은 지독한 T입니다. 감정 호소는 집어치우고 오직 팩트와 논리로만 상대방의 주장을 박살내세요.", 
+    '극F (감성공감)': "당신은 지독한 F입니다. 차가운 논리보다는 인간적인 공감과 따뜻한 감성으로 상대방의 마음을 흔드세요." 
+  }
 };
 
 export default function WeUsApp() {
@@ -32,9 +37,7 @@ export default function WeUsApp() {
   const [userId, setUserId] = useState<string>('');
   const [myReports, setMyReports] = useState<any[]>([]); 
 
-  // ★ 변경: lounge 제거, spectator_list, spectator_room 추가
   const [step, setStep] = useState<'lobby' | 'role_select' | 'waiting' | 'chat' | 'spectator_list' | 'spectator_room'>('lobby');
-  // ★ 추가: 관전할 방의 ID를 저장하는 상태
   const [spectatorRoomId, setSpectatorRoomId] = useState<string | null>(null); 
   
   const [timeLeft, setTimeLeft] = useState(180); 
@@ -63,6 +66,9 @@ export default function WeUsApp() {
   const [adCountdown, setAdCountdown] = useState(3);
   const [isConnecting, setIsConnecting] = useState(false); 
   const [isTyping, setIsTyping] = useState(false); 
+
+  // ★ 신규 추가: 서버의 실시간 글로벌 진영 점수를 담을 상태
+  const [factionScores, setFactionScores] = useState({ T: 0, F: 0 });
 
   const [sysModal, setSysModal] = useState({ isOpen: false, title: '', desc: '', type: 'alert', onConfirm: () => {} });
   const showModal = (title: string, desc: string, type: 'alert' | 'confirm' = 'alert', onConfirm = () => {}) => {
@@ -100,6 +106,11 @@ export default function WeUsApp() {
   useEffect(() => {
     if (!userId) return; 
     socketRef.current = io(SERVER_URL);
+
+    // ★ 신규 추가: 진영전 점수 업데이트 수신
+    socketRef.current.on('faction_score_update', (scores: any) => {
+      setFactionScores(scores);
+    });
 
     socketRef.current.on('receive_my_records', (records) => { setMyReports(records); });
 
@@ -287,8 +298,9 @@ export default function WeUsApp() {
       )}
 
       <main className="flex-1 w-full max-w-lg mx-auto flex flex-col relative z-10 px-4 pt-8 pb-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+        {/* ★ LobbyView에 factionScores 프롭스 전달 */}
         {step === 'lobby' && activeTab === 'lobby' && (
-          <LobbyView selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} selectedTopic={selectedTopic} setSelectedTopic={setSelectedTopic} isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} isConnecting={isConnecting} isSingleMode={isSingleMode} handleMatchStart={handleMatchStart} setStep={setStep} />
+          <LobbyView selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} selectedTopic={selectedTopic} setSelectedTopic={setSelectedTopic} isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} isConnecting={isConnecting} isSingleMode={isSingleMode} handleMatchStart={handleMatchStart} setStep={setStep} factionScores={factionScores} />
         )}
         {step === 'lobby' && activeTab === 'myRecord' && (
           <RecordView userId={userId} myReports={myReports} totalPlayHours={totalPlayHours} personaTitle={pTitle} personaDesc={pDesc} tier={tier} avgLogic={avgLogic} avgLinguistics={avgLinguistics} avgEmpathy={avgEmpathy} />
@@ -297,7 +309,6 @@ export default function WeUsApp() {
           <ProfileView userId={userId} tier={tier} personaTitle={pTitle} socketRef={socketRef} />
         )}
 
-        {/* ★ 추가/수정: 오픈광장 제거, 관전 목록 및 관전방 컴포넌트 연결 */}
         {step === 'spectator_list' && (
           <SpectatorList socketRef={socketRef} setStep={setStep} setSpectatorRoomId={setSpectatorRoomId} />
         )}
@@ -309,11 +320,11 @@ export default function WeUsApp() {
         {step === 'role_select' && ROLE_MAP[selectedTopic] && (
           <div className="text-center w-full flex-1 flex flex-col justify-center pb-20">
             <div className="bg-[#080808]/90 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-6 shadow-2xl">
-              <h2 className="text-lg font-bold text-white mb-2">역할을 선택하세요</h2>
+              <h2 className="text-lg font-bold text-white mb-2">진영(역할)을 선택하세요</h2>
               <div className="space-y-3 mb-6 mt-6">
-                <button onClick={() => confirmRoleAndJoin('A')} className="w-full bg-white/5 py-3.5 rounded-xl border border-emerald-500/30 text-emerald-400">{ROLE_MAP[selectedTopic].roleA}</button>
-                <button onClick={() => confirmRoleAndJoin('B')} className="w-full bg-white/5 py-3.5 rounded-xl border border-blue-500/30 text-blue-400">{ROLE_MAP[selectedTopic].roleB}</button>
-                {!isSingleMode && <button onClick={() => confirmRoleAndJoin('random')} className="w-full bg-white/5 py-3.5 rounded-xl border border-white/10">상관없음 (랜덤)</button>}
+                <button onClick={() => confirmRoleAndJoin('A')} className="w-full bg-blue-900/20 py-3.5 rounded-xl border border-blue-500/30 text-blue-300 font-bold">{ROLE_MAP[selectedTopic].roleA}</button>
+                <button onClick={() => confirmRoleAndJoin('B')} className="w-full bg-emerald-900/20 py-3.5 rounded-xl border border-emerald-500/30 text-emerald-300 font-bold">{ROLE_MAP[selectedTopic].roleB}</button>
+                {!isSingleMode && selectedCategory !== 'event' && <button onClick={() => confirmRoleAndJoin('random')} className="w-full bg-white/5 py-3.5 rounded-xl border border-white/10">상관없음 (랜덤)</button>}
               </div>
               <button onClick={() => { setStep('lobby'); setIsConnecting(false); }} className="text-xs text-white/30 underline">뒤로 가기</button>
             </div>

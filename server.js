@@ -82,6 +82,10 @@ const openLoungeHistory = []; // ★ 신규: 광장 대화 내역 저장 (최대
 // ★ 신규: 서버 부하 방지용 도배 쿨타임(Rate Limit) 맵
 const rateLimits = new Map();
 
+// ★ Phase 3 추가: MBTI 진영전 글로벌 스코어 변수
+let globalScoreT = 0;
+let globalScoreF = 0;
+
 // ★ AI 답변 끊김 방지를 위해 maxTokens를 300으로 설정
 async function getGoogleAIResponse(systemPrompt, history, maxTokens = 300) {
   // ★ 대표님 지시사항: 12b -> 27b -> 4b 순서 유지
@@ -149,6 +153,8 @@ function getPersonaPrompt(topic, isReport = false, partnerRole = '') {
       return `당신은 '${partnerRole}' 역할을 맡았습니다. 면접관이라면 지원자의 논리적 허점을 파고드는 정중하고 예리한 꼬리질문을 하세요. 지원자라면 긴장하지 않고 본인의 논리를 차분히 어필하세요.` + baseConstraint;
     case '100억 받기 VS 무병장수':
       return `당신은 '${partnerRole}' 입장에서 토론합니다. 상대의 의견에 정중하게 반박하고 당신의 선택이 가진 가치를 논리적으로 설득하세요.` + baseConstraint;
+    case '🔥 MBTI 멸망전: T vs F':
+      return `당신은 '${partnerRole}' 입장에서 토론합니다. 상대방의 논리나 감성적 주장을 완벽하게 타파하세요.` + baseConstraint;
     default:
       return `당신은 '${partnerRole}' 역할을 맡은 대화 파트너입니다. 상호 존중하며 흥미롭고 편안한 대화를 이끌어주세요.` + baseConstraint;
   }
@@ -169,7 +175,7 @@ function tryMatch(topicKey) {
       topic: topicKey, 
       userIds: new Set([user1.userId, user2.userId].filter(Boolean)),
       endTime: Date.now() + (180 * 1000),
-      // ★ 관전 모드를 위한 속성 (투표 기록 추가)
+      // ★ Phase 2 추가: 관전자 모드를 위한 역할 및 관전자 수, 투표 기록
       roleA: role1,
       roleB: role2,
       spectators: new Set(),
@@ -208,6 +214,9 @@ function tryMatch(topicKey) {
 
 io.on('connection', (socket) => {
 
+  // ★ Phase 3 추가: 유저가 서버에 최초 접속할 때 글로벌 점수를 바로 쏴줌
+  socket.emit('faction_score_update', { T: globalScoreT, F: globalScoreF });
+
   // ★ 푸시 토큰 등록 소켓 (앱에서 보낸 토큰을 DB에 저장)
   socket.on('register_push_token', async ({ userId, token }) => {
     try {
@@ -222,35 +231,43 @@ io.on('connection', (socket) => {
   // --- [V2: 프로필 & 친구 관리] ---
   socket.on('get_profile', async (userId) => {
     try {
-      if (!userId) return;
-      // ★ 초기화 방지: findOneAndUpdate를 사용하여 안전하게 조회 및 생성 (upsert)
-      const user = await User.findOneAndUpdate(
-        { userId },
-        { $setOnInsert: { userId } },
-        { new: true, upsert: true }
-      );
+      // 프론트에서 객체로 넘어올 경우 방어
+      const uid = typeof userId === 'object' ? userId.userId : userId;
+      if (!uid) return;
+      
+      // ★ 닉네임 버그 완벽 수정: findOneAndUpdate의 $setOnInsert 오작동 제거, 순수 findOne 사용
+      let user = await User.findOne({ userId: uid });
+      if (!user) {
+        user = await User.create({ userId: uid, nickname: '익명의 소통러' });
+      }
       
       const friendsData = await User.find({ userId: { $in: user.friends } }).select('userId nickname');
       socket.emit('receive_profile', { nickname: user.nickname, friends: friendsData });
     } catch (err) {
-      console.error(err);
+      console.error("❌ [get_profile 에러]:", err);
     }
   });
 
   socket.on('update_nickname', async (data) => {
     try {
-      if (!data.userId || !data.nickname) return;
+      const { userId, nickname } = data;
+      if (!userId || !nickname) return;
       
-      // ★ 닉네임 초기화 버그 픽스: $set을 이용해 명확히 업데이트하고 덮어쓰기 방지
-      const user = await User.findOneAndUpdate(
-        { userId: data.userId },
-        { $set: { nickname: data.nickname } },
-        { new: true, upsert: true }
-      );
+      // ★ 닉네임 버그 완벽 수정: 명확하게 찾고, 명확하게 저장 (캐싱 무시)
+      let user = await User.findOne({ userId });
+      if (!user) {
+        user = await User.create({ userId, nickname });
+      } else {
+        user.nickname = nickname;
+        await user.save();
+      }
+
+      // 현재 소켓에 붙어있는 닉네임 정보도 즉시 업데이트 (광장 등에서 곧바로 적용되도록)
+      socket.loungeNickname = nickname;
 
       const friendsData = await User.find({ userId: { $in: user.friends } }).select('userId nickname');
       socket.emit('receive_profile', { nickname: user.nickname, friends: friendsData });
-      console.log(`✅ [닉네임 변경 완료] ${data.userId} -> ${user.nickname}`);
+      console.log(`✅ [닉네임 변경 및 고정 완료] ${userId} -> ${user.nickname}`);
     } catch (err) {
       console.error("❌ [닉네임 변경 에러]:", err);
     }
@@ -587,7 +604,7 @@ io.on('connection', (socket) => {
     io.to('open_lounge').emit('new_lounge_message', msg);
   });
 
-  // ★ 추가: 진행 중인 실시간 방 목록 프론트로 전송 (관전 모드 Phase 1)
+  // ★ Phase 1: 진행 중인 실시간 방 목록 프론트로 전송
   socket.on('request_live_rooms', () => {
     const liveRooms = [];
     for (const room in activeRooms) {
@@ -605,7 +622,7 @@ io.on('connection', (socket) => {
     socket.emit('receive_live_rooms', liveRooms);
   });
 
-  // ★ 추가: 관전자로 입장하기 (입장 시 투표 현황도 전달)
+  // ★ Phase 1 & 2: 관전자로 입장하기 (입장 시 투표 현황도 전달)
   socket.on('join_as_spectator', (data) => {
     const { roomId } = data;
     const roomData = activeRooms[roomId];
@@ -628,7 +645,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ★ 신규: 관전자 실시간 하트 투표 처리 (Phase 2 핵심 로직)
+  // ★ Phase 2: 관전자 실시간 하트 투표 처리
   socket.on('spectator_vote', (data) => {
     const { roomId, voteFor } = data; // voteFor는 'A' 또는 'B'
     const roomData = activeRooms[roomId];
@@ -642,7 +659,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ★ 추가: 관전자 나가기
+  // ★ 관전자 나가기
   socket.on('leave_spectator', (data) => {
     const { roomId } = data;
     const roomData = activeRooms[roomId];
@@ -667,7 +684,7 @@ io.on('connection', (socket) => {
       waitingQueues[socket.queueTopic][targetQueue] = waitingQueues[socket.queueTopic][targetQueue].filter(s => s.id !== socket.id);
     }
 
-    // ★ 추가: 튕겼을 때 관전방에서도 정상적으로 나가기 처리
+    // ★ 튕겼을 때 관전방에서도 정상적으로 나가기 처리
     if (socket.spectatingRoom && activeRooms[socket.spectatingRoom]) {
       const roomData = activeRooms[socket.spectatingRoom];
       if (roomData.spectators) {
@@ -703,6 +720,17 @@ setInterval(async () => {
     
     if (now >= roomData.endTime && !roomData.isGeneratingReport) {
       roomData.isGeneratingReport = true;
+
+      // ★ Phase 3: 진영전 점수 판정 및 글로벌 누적
+      if (roomData.topic === '🔥 MBTI 멸망전: T vs F') {
+        const votesA = roomData.votesA || 0;
+        const votesB = roomData.votesB || 0;
+        if (votesA > votesB) globalScoreT += 10;
+        else if (votesB > votesA) globalScoreF += 10;
+        else { globalScoreT += 5; globalScoreF += 5; } // 동점 처리
+        
+        io.emit('faction_score_update', { T: globalScoreT, F: globalScoreF });
+      }
 
       if (roomData.history.length < 4) {
         io.to(room).emit('receive_report', { error: true });
