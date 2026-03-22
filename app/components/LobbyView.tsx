@@ -15,7 +15,6 @@ export default function LobbyView({
   const currentOptions = LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.options || [];
 
   return (
-    // min-h-[500px] 제거, 패딩 조정
     <div className="w-full flex flex-col justify-center space-y-4 sm:space-y-6 flex-1 max-w-sm mx-auto pb-4">
       
       <div className="text-center space-y-1 mb-2 sm:mb-5 shrink-0 mt-2">
@@ -41,7 +40,6 @@ export default function LobbyView({
             }`}
           >
             <span className="text-lg sm:text-xl mb-0.5">{cat.icon}</span>
-            {/* whitespace-nowrap 제거 -> 작은 폰에서 자연스럽게 줄바꿈 됨 */}
             <span className="text-[9px] sm:text-[10px] font-bold tracking-wider text-white text-center leading-tight">{cat.title}</span>
           </button>
         ))}
@@ -79,11 +77,14 @@ export default function LobbyView({
         </div>
 
         <div className="space-y-2 pt-1">
+          {/* ★ 신규: 오픈광장 삭제 및 콜로세움 관전 버튼으로 교체 */}
           <button 
-            onClick={() => setStep && setStep('lounge')} 
-            className="w-full bg-gradient-to-r from-blue-900/40 to-indigo-900/40 border border-blue-500/30 text-blue-200 hover:from-blue-900/60 hover:to-indigo-900/60 font-extrabold tracking-wide py-3 sm:py-3.5 rounded-xl transition-all flex justify-center items-center gap-2 text-[13px] sm:text-[14px] shadow-[0_0_15px_rgba(59,130,246,0.15)]"
+            onClick={() => setStep && setStep('spectator_list')} 
+            className="w-full relative overflow-hidden bg-gradient-to-r from-red-900/40 to-orange-900/40 border border-red-500/30 text-red-200 hover:from-red-900/60 hover:to-orange-900/60 font-extrabold tracking-wide py-3 sm:py-3.5 rounded-xl transition-all flex justify-center items-center gap-2 text-[13px] sm:text-[14px] shadow-[0_0_15px_rgba(239,68,68,0.2)]"
           >
-            <span className="text-base sm:text-lg">🌍</span> 위어스 오픈광장 입장
+            <div className="absolute inset-0 bg-red-500/10 animate-pulse pointer-events-none"></div>
+            <span className="text-base sm:text-lg relative z-10">🔥</span> 
+            <span className="relative z-10">실시간 콜로세움 관전하기</span>
           </button>
           
           <button 

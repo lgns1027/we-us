@@ -168,7 +168,11 @@ function tryMatch(topicKey) {
       isGeneratingReport: false, 
       topic: topicKey, 
       userIds: new Set([user1.userId, user2.userId].filter(Boolean)),
-      endTime: Date.now() + (180 * 1000)
+      endTime: Date.now() + (180 * 1000),
+      // ★ 신규: 관전자 모드를 위한 역할 및 관전자 수 기록
+      roleA: role1,
+      roleB: role2,
+      spectators: new Set()
     };
 
     user1.socket.join(roomName);
@@ -581,6 +585,25 @@ io.on('connection', (socket) => {
     io.to('open_lounge').emit('new_lounge_message', msg);
   });
 
+  // ★ 신규: 진행 중인 실시간 방 목록 프론트로 전송 (관전 모드 Phase 1)
+  socket.on('request_live_rooms', () => {
+    const liveRooms = [];
+    for (const room in activeRooms) {
+      const r = activeRooms[room];
+      // 다대다(실제 유저 매칭) 방만 리스트에 추가
+      if (r.type === 'multi') {
+        liveRooms.push({
+          roomId: room,
+          topic: r.topic,
+          roleA: r.roleA || 'A',
+          roleB: r.roleB || 'B',
+          spectatorCount: r.spectators ? r.spectators.size : 0
+        });
+      }
+    }
+    socket.emit('receive_live_rooms', liveRooms);
+  });
+
   socket.on('disconnect', () => {
     if (socket.loungeNickname) {
       const count = (io.sockets.adapter.rooms.get('open_lounge')?.size || 1) - 1;
@@ -627,10 +650,12 @@ setInterval(async () => {
       
       const systemPrompt = getPersonaPrompt(roomData.topic, true);
       
+      // 싱글 모드 DB 저장 시 객체 데이터 에러 방지 처리 추가
       const conversationText = roomData.type === 'single'
         ? roomData.history.map(msg => `${msg.role === 'user' ? '나' : '상대방'}: ${msg.content}`).join('\n')
         : roomData.history.join('\n');
       
+      // API 토큰 최적화를 위해 maxTokens를 300으로 제한
       const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 300); 
       
       let logicScore = 50, linguisticsScore = 50, empathyScore = 50;
