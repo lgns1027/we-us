@@ -16,15 +16,18 @@ const ROLE_MAP: Record<string, { roleA: string, roleB: string }> = {
   '자본주의 생존기': { roleA: '자본주의 찬성론자', roleB: '자본주의 회의론자' },
   '최악의 이불킥 경험': { roleA: '썰 푸는 화자', roleB: '공감하는 리스너' },
   '진상손님 방어전': { roleA: '알바생', roleB: '진상손님' },
-  '압박 면접': { roleA: '지원자', roleB: '면접관' }
-  // ★ 하드코딩 제거: 진영전 역할은 이제 서버에서 받아옵니다.
+  '압박 면접': { roleA: '지원자', roleB: '면접관' },
+  '🔥 MBTI 멸망전: T vs F': { roleA: '극T (팩트폭행)', roleB: '극F (감성공감)' }
 };
 
 const ROLE_MISSIONS: Record<string, Record<string, string>> = {
   '압박 면접': { '지원자': "당신은 이력서에 '해외 영업 3년'이라 적었지만, 사실 워홀 3개월이 전부입니다. 3분간 방어하세요.", '면접관': "해외 영업 3년이라는데 철저한 거짓말 같습니다. 집요하게 꼬리 질문을 던지세요." },
   '진상손님 방어전': { '알바생': "당신은 카페 알바생입니다. 다 마신 얼음을 가져와 환불을 요구하는 손님을 방어하세요.", '진상손님': "당신은 돈이 아깝습니다. 얼음이 빨리 녹았다는 논리로 전액 환불을 받아내세요." },
-  '100억 받기 VS 무병장수': { '100억 선택': "당신은 100억을 선택했습니다. 무병장수를 고른 상대에게 돈 없는 장수는 저주라고 팩트폭행하세요.", '무병장수 선택': "당신은 무병장수를 선택했습니다. 건강을 잃으면 돈은 휴지조각이라고 상대를 압도하세요." }
-  // ★ 하드코딩 제거: 진영전 미션은 이제 서버에서 받아옵니다.
+  '100억 받기 VS 무병장수': { '100억 선택': "당신은 100억을 선택했습니다. 무병장수를 고른 상대에게 돈 없는 장수는 저주라고 팩트폭행하세요.", '무병장수 선택': "당신은 무병장수를 선택했습니다. 건강을 잃으면 돈은 휴지조각이라고 상대를 압도하세요." },
+  '🔥 MBTI 멸망전: T vs F': { 
+    '극T (팩트폭행)': "당신은 지독한 T입니다. 감정 호소는 집어치우고 오직 팩트와 논리로만 상대방의 주장을 박살내세요.", 
+    '극F (감성공감)': "당신은 지독한 F입니다. 차가운 논리보다는 인간적인 공감과 따뜻한 감성으로 상대방의 마음을 흔드세요." 
+  }
 };
 
 export default function WeUsApp() {
@@ -62,7 +65,6 @@ export default function WeUsApp() {
   const [isConnecting, setIsConnecting] = useState(false); 
   const [isTyping, setIsTyping] = useState(false); 
 
-  // ★ 글로벌 진영 점수 및 서버 동적 이벤트 정보 상태
   const [factionScores, setFactionScores] = useState({ T: 0, F: 0 });
   const [currentEvent, setCurrentEvent] = useState<any>(null);
 
@@ -74,7 +76,6 @@ export default function WeUsApp() {
   const socketRef = useRef<Socket | null>(null);
   const lastInteractionTime = useRef<number>(Date.now());
   const messagesRef = useRef(messages);
-  // ★ stateRefs에 currentEvent 추가하여 비동기 환경에서도 최신값을 참조하도록 설정
   const stateRefs = useRef({ selectedTopic, isAnalyzing, reportData, showAd, currentEvent });
 
   useEffect(() => { stateRefs.current = { selectedTopic, isAnalyzing, reportData, showAd, currentEvent }; }, [selectedTopic, isAnalyzing, reportData, showAd, currentEvent]);
@@ -104,7 +105,6 @@ export default function WeUsApp() {
     if (!userId) return; 
     socketRef.current = io(SERVER_URL);
 
-    // ★ 점수 및 동적 이벤트 정보 수신
     socketRef.current.on('faction_score_update', (data: any) => {
       setFactionScores({ T: data.T, F: data.F });
       if (data.currentEvent) setCurrentEvent(data.currentEvent);
@@ -118,7 +118,6 @@ export default function WeUsApp() {
       setStep('chat'); setTimeLeft(180); setHasVoted(false); setVoteStatus(''); setExtensionCount(0); 
       setIsAnalyzing(false); setReportData(null); setReportStats(null); setPartnerId(null); setShowAd(false); setIsTyping(false); 
       
-      // ★ 하드코딩 제거: 현재 매칭된 토픽이 이벤트 토픽이면 동적 미션을 부여
       let missionText = `당신은 [${data.myRole}] 역할을 배정받았습니다. 대화를 시작해 보세요.`;
       const curEvt = stateRefs.current.currentEvent;
       if (curEvt && stateRefs.current.selectedTopic === curEvt.topic) {
@@ -141,7 +140,7 @@ export default function WeUsApp() {
 
     socketRef.current.on('partner_left', () => {
       if (!stateRefs.current.isAnalyzing && !stateRefs.current.reportData && !stateRefs.current.showAd) {
-        showModal('대화 종료', '상대방이 방을 나갔습니다.', 'alert', () => setStep('lobby'));
+        showModal('대화 종료', '상대방이 방을 나갔습니다.', 'alert', () => forceLeaveRoom());
       }
     });
 
@@ -157,8 +156,12 @@ export default function WeUsApp() {
 
     socketRef.current.on('receive_report', (data) => {
       setIsAnalyzing(false);
-      if (data.error) showModal("분석 실패", "대화 내용이 너무 짧아 리포트를 발급할 수 없습니다.", "alert");
-      else { 
+      // ★ 변경점: 리포트 오류 발생 시 [확인] 누르면 로비로 튕겨나가는 예외 처리
+      if (data.error) {
+        showModal("분석 실패", "대화 내용이 너무 짧아 리포트를 발급할 수 없습니다.", "alert", () => {
+          forceLeaveRoom(); 
+        });
+      } else { 
         setReportData(data.reportText); 
         setReportStats(data.stats);
         setPartnerId(data.partnerId); 
@@ -169,6 +172,7 @@ export default function WeUsApp() {
     return () => { socketRef.current?.disconnect(); };
   }, [userId]); 
 
+  // (이하 useEffect 생략 방지를 위해 그대로 유지)
   useEffect(() => {
     const handleAppActive = () => {
       if (socketRef.current && !socketRef.current.connected) {
@@ -235,7 +239,6 @@ export default function WeUsApp() {
 
   const handleMatchStart = (isAiMode: boolean) => {
     setIsConnecting(true); setIsSingleMode(isAiMode);
-    // ★ 동적 이벤트도 역할 선택 창으로 넘어가도록 분기 추가
     if (ROLE_MAP[selectedTopic] || selectedCategory === 'event') setStep('role_select');
     else {
       if (isAiMode) socketRef.current?.emit('start_ai_chat', { topic: selectedTopic, myRole: '익명', aiRole: 'AI 파트너', userId });
@@ -247,7 +250,6 @@ export default function WeUsApp() {
 
   const confirmRoleAndJoin = (chosenRole: 'A' | 'B' | 'random') => {
     setIsConnecting(true); 
-    // ★ 하드코딩 제거: 현재 선택된 게 이벤트면 서버에서 받은 역할을 사용
     const roleData = selectedCategory === 'event' && currentEvent 
       ? { roleA: currentEvent.roleA, roleB: currentEvent.roleB } 
       : ROLE_MAP[selectedTopic];
@@ -310,7 +312,6 @@ export default function WeUsApp() {
       )}
 
       <main className="flex-1 w-full max-w-lg mx-auto flex flex-col relative z-10 px-4 pt-8 pb-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-        {/* ★ LobbyView에 currentEvent 프롭스 추가 전달 */}
         {step === 'lobby' && activeTab === 'lobby' && (
           <LobbyView selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} selectedTopic={selectedTopic} setSelectedTopic={setSelectedTopic} isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} isConnecting={isConnecting} isSingleMode={isSingleMode} handleMatchStart={handleMatchStart} setStep={setStep} factionScores={factionScores} currentEvent={currentEvent} />
         )}
@@ -329,7 +330,6 @@ export default function WeUsApp() {
           <SpectatorRoom socketRef={socketRef} roomId={spectatorRoomId} setStep={setStep} />
         )}
 
-        {/* ★ 역할 렌더링에 동적 데이터 사용 */}
         {step === 'role_select' && (ROLE_MAP[selectedTopic] || selectedCategory === 'event') && (
           <div className="text-center w-full flex-1 flex flex-col justify-center pb-20">
             <div className="bg-[#080808]/90 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-6 shadow-2xl">

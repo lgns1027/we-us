@@ -10,7 +10,7 @@ const LOBBY_CATEGORIES = [
 export default function LobbyView({
   selectedCategory, setSelectedCategory, selectedTopic, setSelectedTopic,
   isDropdownOpen, setIsDropdownOpen, isConnecting, isSingleMode, handleMatchStart,
-  setStep, factionScores, currentEvent // ★ currentEvent 프롭스 추가 수신
+  setStep, factionScores, currentEvent
 }: any) {
   const currentOptions = LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.options || [];
 
@@ -24,32 +24,33 @@ export default function LobbyView({
         <p className="text-gray-400 font-light tracking-widest text-[9px] sm:text-[10px]">우리가 되어가는 3분의 시간</p>
       </div>
 
-      <div 
-        onClick={() => {
-          if (!currentEvent) return;
-          setSelectedCategory('event');
-          // ★ 하드코딩 제거: 서버에서 준 토픽을 세팅
-          setSelectedTopic(currentEvent.topic);
-          setStep('role_select');
-        }}
-        className="w-full relative overflow-hidden bg-gradient-to-r from-purple-900/80 via-fuchsia-900/80 to-blue-900/80 border border-fuchsia-500/50 rounded-2xl p-4 cursor-pointer hover:scale-[1.02] transition-transform shadow-[0_0_20px_rgba(217,70,239,0.3)] shrink-0 group"
-      >
-        <div className="absolute top-0 right-0 w-32 h-32 bg-fuchsia-500/20 blur-3xl rounded-full group-hover:bg-fuchsia-500/40 transition-colors"></div>
-        <div className="flex justify-between items-start relative z-10">
-          <div className="flex flex-col text-left">
-            <span className="text-[10px] sm:text-xs font-black text-fuchsia-300 tracking-widest mb-1 animate-pulse">
-              {currentEvent ? currentEvent.desc.split('!')[0] + '!' : '새로운 이벤트를 불러오는 중...'}
-            </span>
-            <h2 className="text-sm sm:text-base font-extrabold text-white tracking-wide">
-              {currentEvent ? currentEvent.topic : '로딩 중 ⏳'}
-            </h2>
-            <p className="text-[10px] sm:text-[11px] text-white/70 mt-1.5 font-medium">
-              실시간 스코어: <span className="font-black text-blue-400">진영A {factionScores?.T || 0}점</span> vs <span className="font-black text-emerald-400">진영B {factionScores?.F || 0}점</span>
-            </p>
+      {/* ★ 변경점: currentEvent가 있을 때(주말)만 배너를 렌더링. 평일엔 아예 사라짐 */}
+      {currentEvent && (
+        <div 
+          onClick={() => {
+            setSelectedCategory('event');
+            setSelectedTopic(currentEvent.topic);
+            setStep('role_select');
+          }}
+          className="w-full relative overflow-hidden bg-gradient-to-r from-purple-900/80 via-fuchsia-900/80 to-blue-900/80 border border-fuchsia-500/50 rounded-2xl p-4 cursor-pointer hover:scale-[1.02] transition-transform shadow-[0_0_20px_rgba(217,70,239,0.3)] shrink-0 group"
+        >
+          <div className="absolute top-0 right-0 w-32 h-32 bg-fuchsia-500/20 blur-3xl rounded-full group-hover:bg-fuchsia-500/40 transition-colors"></div>
+          <div className="flex justify-between items-start relative z-10">
+            <div className="flex flex-col text-left">
+              <span className="text-[10px] sm:text-xs font-black text-fuchsia-300 tracking-widest mb-1 animate-pulse">
+                {currentEvent.desc.split('!')[0] + '!'}
+              </span>
+              <h2 className="text-sm sm:text-base font-extrabold text-white tracking-wide">
+                {currentEvent.topic}
+              </h2>
+              <p className="text-[10px] sm:text-[11px] text-white/70 mt-1.5 font-medium">
+                실시간 스코어: <span className="font-black text-blue-400">진영A {factionScores?.T || 0}점</span> vs <span className="font-black text-emerald-400">진영B {factionScores?.F || 0}점</span>
+              </p>
+            </div>
+            <div className="text-2xl sm:text-3xl drop-shadow-lg">⚔️</div>
           </div>
-          <div className="text-2xl sm:text-3xl drop-shadow-lg">⚔️</div>
         </div>
-      </div>
+      )}
       
       <div className="grid grid-cols-2 gap-2 sm:gap-3 shrink-0">
         {LOBBY_CATEGORIES.map(cat => (
