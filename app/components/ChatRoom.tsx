@@ -12,16 +12,11 @@ export default function ChatRoom({
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   
-  // ★ 기존: 도배 방지용 쿨타임 상태
-  const [isCooldown, setIsCooldown] = useState(false);
-
-  // ★ 신규: 보상형 광고를 보고 상대방 카드를 해금했는지 여부
   const [isPartnerCardUnlocked, setIsPartnerCardUnlocked] = useState(false);
   
   const reportCardRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // ★ 신규: App.js(앱)에서 광고 시청 완료 신호(REWARD_EARNED)를 받으면 잠금 해제
   useEffect(() => {
     const handleRewardEarned = () => {
       setIsPartnerCardUnlocked(true);
@@ -39,12 +34,8 @@ export default function ChatRoom({
 
   const sendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || !room || isCooldown) return;
+    if (!inputText.trim() || !room) return;
     
-    // ★ 쿨타임 발동 (0.5초간 전송 금지)
-    setIsCooldown(true);
-    setTimeout(() => setIsCooldown(false), 500);
-
     setMessages((prev: any) => [...prev, { sender: myRole || '나', text: inputText }]);
     socketRef.current?.emit('send_message', { room: room, roomId: room, text: inputText, partner: partnerRole });
     setInputText('');
@@ -86,12 +77,10 @@ export default function ChatRoom({
     showModal('인맥 추가 완료', '상대방을 인사이트 인맥에 추가했습니다!\nPROFILE 창에서 확인하세요.', 'alert');
   };
 
-  // ★ 신규: 보상형 광고 호출 함수
   const handleWatchAdForPartnerCard = () => {
     if (typeof window !== 'undefined' && (window as any).ReactNativeWebView) {
       (window as any).ReactNativeWebView.postMessage('SHOW_REWARDED_AD');
     } else {
-      // 웹 브라우저 테스트용 (앱이 아닐 땐 바로 열어줌)
       setIsPartnerCardUnlocked(true);
     }
   };
@@ -99,12 +88,25 @@ export default function ChatRoom({
   return (
     <div className="w-full flex-1 mb-4 bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative">
       
-      {timeLeft === 0 && isAnalyzing && !showAd && !reportData && (
-        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-red-900/30 backdrop-blur-sm animate-pulse">
-          <span className="text-4xl sm:text-5xl font-black text-red-500 tracking-[0.2em] drop-shadow-[0_0_30px_rgba(239,68,68,1)] scale-110 transition-transform">
+      {/* ★ 변경점: 타임오버 화면에 "로비로 나가기" 버튼 명시적 추가 */}
+      {timeLeft === 0 && !showAd && !reportData && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-red-900/40 backdrop-blur-md px-4">
+          <span className="text-4xl sm:text-5xl font-black text-red-500 tracking-[0.2em] drop-shadow-[0_0_30px_rgba(239,68,68,1)] animate-pulse">
             TIME OVER
           </span>
-          <p className="text-white/80 mt-4 font-bold tracking-widest text-xs sm:text-sm drop-shadow-md">대화가 종료되었습니다</p>
+          <p className="text-white/80 mt-4 font-bold tracking-widest text-xs sm:text-sm drop-shadow-md">
+            {isAnalyzing ? 'AI가 대화를 분석 중입니다...' : '대화가 종료되었습니다.'}
+          </p>
+          
+          {/* 분석 중이 아닐 때 (에러 시 로비 튕기기 예외 처리용 버튼) */}
+          {!isAnalyzing && (
+            <button 
+              onClick={() => forceLeaveRoom()} 
+              className="mt-8 w-full max-w-[200px] py-3.5 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl font-bold tracking-widest text-sm transition-colors"
+            >
+              로비로 나가기
+            </button>
+          )}
         </div>
       )}
 
@@ -144,12 +146,6 @@ export default function ChatRoom({
         </div>
       )}
 
-      {isAnalyzing && !showAd && !reportData && timeLeft > 0 && (
-        <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center z-40 backdrop-blur-md">
-          <div className="w-10 h-10 sm:w-12 sm:h-12 border-2 border-white/20 border-t-white rounded-full animate-spin mb-4 sm:mb-6"></div><p className="text-white text-sm font-light tracking-widest">분석 중입니다...</p>
-        </div>
-      )}
-
       {reportData && !showAd && (
         <div className="absolute inset-0 bg-[#050505]/95 flex flex-col items-center justify-center z-50 p-3 sm:p-4 backdrop-blur-xl">
           <div ref={reportCardRef} className="bg-[#0a0a0a] border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-6 w-full max-w-sm shadow-2xl flex flex-col max-h-[70vh]">
@@ -169,7 +165,6 @@ export default function ChatRoom({
               {reportData}
             </div>
 
-            {/* ★ 신규: 상대방 결과 훔쳐보기 (보상형 광고 유도) */}
             {!isSingleMode && partnerId && (
               <div className="mt-4 border-t border-white/10 pt-4 shrink-0">
                 {!isPartnerCardUnlocked ? (
@@ -255,10 +250,10 @@ export default function ChatRoom({
         </div>
       )}
 
-      {/* ★ 변경점: 쿨타임 중일 때 전송 버튼 비활성화 (isCooldown) */}
+      {/* ★ 0.5초 도배 제한 속성 제거 (isCooldown 삭제됨) */}
       <form onSubmit={sendMessage} className="p-2 sm:p-3 bg-[#050505] border-t border-white/5 flex gap-2 z-10 relative shrink-0">
-        <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} disabled={isAnalyzing || !!reportData || showAd || isCooldown} placeholder="메시지 입력..." className="flex-1 bg-white/5 text-white px-3 sm:px-4 py-2.5 sm:py-3 rounded-full outline-none text-xs sm:text-sm"/>
-        <button type="submit" disabled={isAnalyzing || !!reportData || showAd || !inputText.trim() || isCooldown} className="bg-white text-black w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-bold disabled:opacity-50 text-sm">↑</button>
+        <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} disabled={isAnalyzing || !!reportData || showAd} placeholder="메시지 입력..." className="flex-1 bg-white/5 text-white px-3 sm:px-4 py-2.5 sm:py-3 rounded-full outline-none text-xs sm:text-sm"/>
+        <button type="submit" disabled={isAnalyzing || !!reportData || showAd || !inputText.trim()} className="bg-white text-black w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-bold disabled:opacity-50 text-sm">↑</button>
       </form>
     </div>
   );
