@@ -14,6 +14,11 @@ export default function ChatRoom({
   
   const [isPartnerCardUnlocked, setIsPartnerCardUnlocked] = useState(false);
   
+  // ★ 신규: 시라노(Cyrano) 추천 답변 및 MBTI 추리 상태
+  const [cyranoSuggestions, setCyranoSuggestions] = useState<string>('');
+  const [isCyranoLoading, setIsCyranoLoading] = useState(false);
+  const [hasGuessedMBTI, setHasGuessedMBTI] = useState(false);
+  
   const reportCardRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -24,6 +29,15 @@ export default function ChatRoom({
     window.addEventListener('REWARD_EARNED', handleRewardEarned);
     return () => window.removeEventListener('REWARD_EARNED', handleRewardEarned);
   }, []);
+
+  // ★ 신규: 시라노 귓속말 답변 수신
+  useEffect(() => {
+    socketRef.current?.on('receive_cyrano_help', (data: any) => {
+      setIsCyranoLoading(false);
+      setCyranoSuggestions(data.suggestions);
+    });
+    return () => socketRef.current?.off('receive_cyrano_help');
+  }, [socketRef]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -39,6 +53,20 @@ export default function ChatRoom({
     setMessages((prev: any) => [...prev, { sender: myRole || '나', text: inputText }]);
     socketRef.current?.emit('send_message', { room: room, roomId: room, text: inputText, partner: partnerRole });
     setInputText('');
+    setCyranoSuggestions(''); // 메시지 보내면 헬프창 닫기
+  };
+
+  // ★ 신규: 시라노 귓속말 요청 (💡 버튼 클릭 시)
+  const requestCyrano = () => {
+    setIsCyranoLoading(true);
+    socketRef.current?.emit('request_cyrano_help', { room });
+  };
+
+  // ★ 신규: MBTI 블라인드 추리 제출
+  const submitMBTI = (guess: string) => {
+    setHasGuessedMBTI(true);
+    socketRef.current?.emit('submit_mbti_guess', { room, guess });
+    showModal('추리 완료!', '결과는 대화 종료 후 리포트에서 공개됩니다.', 'alert');
   };
 
   const handleReportSubmit = () => {
@@ -88,7 +116,19 @@ export default function ChatRoom({
   return (
     <div className="w-full flex-1 mb-4 bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative">
       
-      {/* ★ 변경점: 타임오버 화면에 "로비로 나가기" 버튼 명시적 추가 */}
+      {/* ★ 신규: 종료 30초 전 MBTI 블라인드 추리 팝업 */}
+      {timeLeft > 0 && timeLeft <= 30 && selectedTopic.includes('MBTI') && !hasGuessedMBTI && !isAnalyzing && !reportData && (
+        <div className="absolute top-[80px] left-1/2 -translate-x-1/2 w-[90%] max-w-[300px] bg-purple-900/90 backdrop-blur-xl border border-purple-500/50 rounded-2xl p-4 shadow-2xl z-40 flex flex-col items-center animate-fade-in-up">
+          <span className="text-2xl mb-1">🕵️‍♂️</span>
+          <h3 className="text-xs font-bold text-white mb-1">상대방의 진짜 성향은?</h3>
+          <p className="text-[9px] text-white/70 mb-3 text-center">종료 전 상대방의 MBTI를 추리해보세요!</p>
+          <div className="flex gap-2 w-full">
+            <button onClick={() => submitMBTI('T')} className="flex-1 py-2 bg-blue-600/30 border border-blue-400/50 rounded-lg text-blue-200 font-bold text-xs hover:bg-blue-600/50">극T 일거야</button>
+            <button onClick={() => submitMBTI('F')} className="flex-1 py-2 bg-emerald-600/30 border border-emerald-400/50 rounded-lg text-emerald-200 font-bold text-xs hover:bg-emerald-600/50">극F 일거야</button>
+          </div>
+        </div>
+      )}
+
       {timeLeft === 0 && !showAd && !reportData && (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-red-900/40 backdrop-blur-md px-4">
           <span className="text-4xl sm:text-5xl font-black text-red-500 tracking-[0.2em] drop-shadow-[0_0_30px_rgba(239,68,68,1)] animate-pulse">
@@ -98,7 +138,6 @@ export default function ChatRoom({
             {isAnalyzing ? 'AI가 대화를 분석 중입니다...' : '대화가 종료되었습니다.'}
           </p>
           
-          {/* 분석 중이 아닐 때 (에러 시 로비 튕기기 예외 처리용 버튼) */}
           {!isAnalyzing && (
             <button 
               onClick={() => forceLeaveRoom()} 
@@ -243,17 +282,36 @@ export default function ChatRoom({
       </div>
 
       {timeLeft <= 60 && !isSingleMode && !isAnalyzing && !reportData && extensionCount < 2 && !showAd && (
-        <div className="absolute bottom-[60px] sm:bottom-[70px] left-0 w-full p-2 bg-gradient-to-t from-[#0a0a0a] to-transparent flex flex-col items-center justify-center">
+        <div className="absolute bottom-[60px] sm:bottom-[70px] left-0 w-full p-2 bg-gradient-to-t from-[#0a0a0a] to-transparent flex flex-col items-center justify-center z-10">
           <button onClick={() => { setHasVoted(true); socketRef.current?.emit('vote_extend', { room }); }} disabled={hasVoted} className={`px-4 sm:px-5 py-1.5 sm:py-2 rounded-full font-bold text-[10px] sm:text-xs shadow-lg transition-all border ${hasVoted ? 'bg-white/5 border-white/10 text-white/30 cursor-not-allowed' : 'bg-emerald-500/20 border-emerald-500/50 hover:bg-emerald-500/30 text-emerald-300'}`}>
             {hasVoted ? `동의 대기중 ${voteStatus}` : `+ 2분 연장하기 (${extensionCount}/2)`}
           </button>
         </div>
       )}
 
-      {/* ★ 0.5초 도배 제한 속성 제거 (isCooldown 삭제됨) */}
-      <form onSubmit={sendMessage} className="p-2 sm:p-3 bg-[#050505] border-t border-white/5 flex gap-2 z-10 relative shrink-0">
+      {/* ★ 신규: 시라노 추천 팝업 (입력창 바로 위에 렌더링) */}
+      {cyranoSuggestions && (
+        <div className="absolute bottom-[60px] sm:bottom-[70px] left-0 w-full p-2 bg-[#050505]/95 border-t border-white/10 z-20 flex flex-col gap-2 shadow-2xl">
+          <div className="flex justify-between items-center px-1">
+            <span className="text-[10px] text-purple-400 font-bold">💡 시라노의 추천 답변</span>
+            <button onClick={() => setCyranoSuggestions('')} className="text-white/50 text-[10px]">닫기</button>
+          </div>
+          {cyranoSuggestions.split('|').map((sug, i) => (
+            <button key={i} onClick={() => { setInputText(sug.trim().replace(/\[.*?\]\s*/, '')); setCyranoSuggestions(''); }} className="text-left text-[11px] text-white/80 bg-white/5 hover:bg-white/10 p-2 rounded-lg truncate">
+              {sug.trim()}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <form onSubmit={sendMessage} className="p-2 sm:p-3 bg-[#050505] border-t border-white/5 flex gap-2 z-30 relative shrink-0">
+        {/* ★ 신규: 시라노(Cyrano) 헬프 버튼 */}
+        <button type="button" onClick={requestCyrano} disabled={isCyranoLoading || isAnalyzing || !!reportData} className="bg-purple-900/30 border border-purple-500/30 text-purple-300 w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs sm:text-sm shrink-0 transition-colors hover:bg-purple-900/50">
+          {isCyranoLoading ? '⏳' : '💡'}
+        </button>
+        
         <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} disabled={isAnalyzing || !!reportData || showAd} placeholder="메시지 입력..." className="flex-1 bg-white/5 text-white px-3 sm:px-4 py-2.5 sm:py-3 rounded-full outline-none text-xs sm:text-sm"/>
-        <button type="submit" disabled={isAnalyzing || !!reportData || showAd || !inputText.trim()} className="bg-white text-black w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-bold disabled:opacity-50 text-sm">↑</button>
+        <button type="submit" disabled={isAnalyzing || !!reportData || showAd || !inputText.trim()} className="bg-white text-black w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-bold disabled:opacity-50 text-sm shrink-0">↑</button>
       </form>
     </div>
   );

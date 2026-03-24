@@ -93,8 +93,20 @@ export default function WeUsApp() {
   useEffect(() => {
     const handlePushToken = (e: any) => {
       const token = e.detail;
-      if (userId && token && socketRef.current) {
-        socketRef.current.emit('register_push_token', { userId, token });
+      if (token && socketRef.current) {
+        // ★ 신규: 푸시 토큰으로 서버에 내 원래 계정 찾아달라고 요청 (닉네임 유령계정 버그 원천 차단)
+        socketRef.current.emit('recover_account_by_token', token, (recoveredId: string | null) => {
+          let finalId = userId;
+          if (recoveredId && recoveredId !== userId) {
+            setUserId(recoveredId);
+            localStorage.setItem('weus_user_id', recoveredId);
+            finalId = recoveredId;
+          }
+          // ID 세팅 후 토큰 등록
+          if (finalId) {
+            socketRef.current?.emit('register_push_token', { userId: finalId, token });
+          }
+        });
       }
     };
     window.addEventListener('expoPushToken', handlePushToken);
@@ -156,7 +168,6 @@ export default function WeUsApp() {
 
     socketRef.current.on('receive_report', (data) => {
       setIsAnalyzing(false);
-      // ★ 변경점: 리포트 오류 발생 시 [확인] 누르면 로비로 튕겨나가는 예외 처리
       if (data.error) {
         showModal("분석 실패", "대화 내용이 너무 짧아 리포트를 발급할 수 없습니다.", "alert", () => {
           forceLeaveRoom(); 
@@ -172,7 +183,6 @@ export default function WeUsApp() {
     return () => { socketRef.current?.disconnect(); };
   }, [userId]); 
 
-  // (이하 useEffect 생략 방지를 위해 그대로 유지)
   useEffect(() => {
     const handleAppActive = () => {
       if (socketRef.current && !socketRef.current.connected) {
