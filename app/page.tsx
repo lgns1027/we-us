@@ -16,18 +16,13 @@ const ROLE_MAP: Record<string, { roleA: string, roleB: string }> = {
   '자본주의 생존기': { roleA: '자본주의 찬성론자', roleB: '자본주의 회의론자' },
   '최악의 이불킥 경험': { roleA: '썰 푸는 화자', roleB: '공감하는 리스너' },
   '진상손님 방어전': { roleA: '알바생', roleB: '진상손님' },
-  '압박 면접': { roleA: '지원자', roleB: '면접관' },
-  '🔥 MBTI 멸망전: T vs F': { roleA: '극T (팩트폭행)', roleB: '극F (감성공감)' }
+  '압박 면접': { roleA: '지원자', roleB: '면접관' }
 };
 
 const ROLE_MISSIONS: Record<string, Record<string, string>> = {
   '압박 면접': { '지원자': "당신은 이력서에 '해외 영업 3년'이라 적었지만, 사실 워홀 3개월이 전부입니다. 3분간 방어하세요.", '면접관': "해외 영업 3년이라는데 철저한 거짓말 같습니다. 집요하게 꼬리 질문을 던지세요." },
   '진상손님 방어전': { '알바생': "당신은 카페 알바생입니다. 다 마신 얼음을 가져와 환불을 요구하는 손님을 방어하세요.", '진상손님': "당신은 돈이 아깝습니다. 얼음이 빨리 녹았다는 논리로 전액 환불을 받아내세요." },
-  '100억 받기 VS 무병장수': { '100억 선택': "당신은 100억을 선택했습니다. 무병장수를 고른 상대에게 돈 없는 장수는 저주라고 팩트폭행하세요.", '무병장수 선택': "당신은 무병장수를 선택했습니다. 건강을 잃으면 돈은 휴지조각이라고 상대를 압도하세요." },
-  '🔥 MBTI 멸망전: T vs F': { 
-    '극T (팩트폭행)': "당신은 지독한 T입니다. 감정 호소는 집어치우고 오직 팩트와 논리로만 상대방의 주장을 박살내세요.", 
-    '극F (감성공감)': "당신은 지독한 F입니다. 차가운 논리보다는 인간적인 공감과 따뜻한 감성으로 상대방의 마음을 흔드세요." 
-  }
+  '100억 받기 VS 무병장수': { '100억 선택': "당신은 100억을 선택했습니다. 무병장수를 고른 상대에게 돈 없는 장수는 저주라고 팩트폭행하세요.", '무병장수 선택': "당신은 무병장수를 선택했습니다. 건강을 잃으면 돈은 휴지조각이라고 상대를 압도하세요." }
 };
 
 export default function WeUsApp() {
@@ -245,7 +240,6 @@ export default function WeUsApp() {
     setStep('lobby'); setIsTyping(false); setIsConnecting(false); setMyRole(''); setPartnerRole('');
   };
 
-  // ★ 변경점: 다이렉트 매칭을 위해 directTopic 파라미터 추가
   const handleMatchStart = (isAiMode: boolean, directTopic?: string) => {
     const topicToUse = directTopic || selectedTopic;
     setIsConnecting(true); setIsSingleMode(isAiMode);
@@ -368,8 +362,9 @@ export default function WeUsApp() {
           </div>
         )}
 
+        {/* ★ ChatRoom에 currentEvent 넘겨줌 */}
         {step === 'chat' && (
-          <ChatRoom socketRef={socketRef} room={room} userId={userId} partnerId={partnerId} myRole={myRole} partnerRole={partnerRole} selectedTopic={selectedTopic} isSingleMode={isSingleMode} messages={messages} setMessages={setMessages} isTyping={isTyping} timeLeft={timeLeft} formatTime={formatTime} isAnalyzing={isAnalyzing} reportData={reportData} reportStats={reportStats} setReportData={setReportData} showAd={showAd} setShowAd={setShowAd} adCountdown={adCountdown} tier={tier} hasVoted={hasVoted} setHasVoted={setHasVoted} voteStatus={voteStatus} extensionCount={extensionCount} forceLeaveRoom={forceLeaveRoom} showModal={showModal} />
+          <ChatRoom socketRef={socketRef} room={room} userId={userId} partnerId={partnerId} myRole={myRole} partnerRole={partnerRole} selectedTopic={selectedTopic} isSingleMode={isSingleMode} messages={messages} setMessages={setMessages} isTyping={isTyping} timeLeft={timeLeft} formatTime={formatTime} isAnalyzing={isAnalyzing} reportData={reportData} reportStats={reportStats} setReportData={setReportData} showAd={showAd} setShowAd={setShowAd} adCountdown={adCountdown} tier={tier} hasVoted={hasVoted} setHasVoted={setHasVoted} voteStatus={voteStatus} extensionCount={extensionCount} forceLeaveRoom={forceLeaveRoom} showModal={showModal} currentEvent={currentEvent} />
         )}
       </main>
 

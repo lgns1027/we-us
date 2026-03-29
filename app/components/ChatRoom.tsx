@@ -5,7 +5,7 @@ export default function ChatRoom({
   socketRef, room, userId, partnerId, myRole, partnerRole, selectedTopic, isSingleMode,
   messages, setMessages, isTyping, timeLeft, formatTime, 
   isAnalyzing, reportData, reportStats, setReportData, showAd, setShowAd, adCountdown, tier,
-  hasVoted, setHasVoted, voteStatus, extensionCount, forceLeaveRoom, showModal
+  hasVoted, setHasVoted, voteStatus, extensionCount, forceLeaveRoom, showModal, currentEvent
 }: any) {
   const [inputText, setInputText] = useState('');
   const [reportReason, setReportReason] = useState('');
@@ -109,7 +109,6 @@ export default function ChatRoom({
     }
   };
 
-  // ★ 신규: 이번 세션의 통계를 바탕으로 영수증 상단에 박을 칭호 계산
   const logicVal = reportStats?.logic || 50;
   const lingVal = reportStats?.linguistics || 50;
   const empVal = reportStats?.empathy || 50;
@@ -124,14 +123,15 @@ export default function ChatRoom({
   return (
     <div className="w-full flex-1 mb-4 bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative">
       
-      {timeLeft > 0 && timeLeft <= 30 && selectedTopic.includes('MBTI') && !hasGuessedMBTI && !isAnalyzing && !reportData && (
+      {/* ★ 변경점: currentEvent를 기반으로 추리 팝업 버튼 이름이 동적으로 변경됨 */}
+      {timeLeft > 0 && timeLeft <= 30 && currentEvent && selectedTopic === currentEvent.topic && !hasGuessedMBTI && !isAnalyzing && !reportData && (
         <div className="absolute top-[80px] left-1/2 -translate-x-1/2 w-[90%] max-w-[300px] bg-purple-900/90 backdrop-blur-xl border border-purple-500/50 rounded-2xl p-4 shadow-2xl z-40 flex flex-col items-center animate-fade-in-up">
           <span className="text-2xl mb-1">🕵️‍♂️</span>
-          <h3 className="text-xs font-bold text-white mb-1">상대방의 진짜 성향은?</h3>
-          <p className="text-[9px] text-white/70 mb-3 text-center">종료 전 상대방의 MBTI를 추리해보세요!</p>
+          <h3 className="text-xs font-bold text-white mb-1">상대방의 진짜 정체는?</h3>
+          <p className="text-[9px] text-white/70 mb-3 text-center">종료 전 상대방의 역할을 추리해보세요!</p>
           <div className="flex gap-2 w-full">
-            <button onClick={() => submitMBTI('T')} className="flex-1 py-2 bg-blue-600/30 border border-blue-400/50 rounded-lg text-blue-200 font-bold text-xs hover:bg-blue-600/50">극T 일거야</button>
-            <button onClick={() => submitMBTI('F')} className="flex-1 py-2 bg-emerald-600/30 border border-emerald-400/50 rounded-lg text-emerald-200 font-bold text-xs hover:bg-emerald-600/50">극F 일거야</button>
+            <button onClick={() => submitMBTI(currentEvent.roleA)} className="flex-1 py-2 bg-blue-600/30 border border-blue-400/50 rounded-lg text-blue-200 font-bold text-[10px] hover:bg-blue-600/50 break-keep">{currentEvent.roleA}</button>
+            <button onClick={() => submitMBTI(currentEvent.roleB)} className="flex-1 py-2 bg-emerald-600/30 border border-emerald-400/50 rounded-lg text-emerald-200 font-bold text-[10px] hover:bg-emerald-600/50 break-keep">{currentEvent.roleB}</button>
           </div>
         </div>
       )}
@@ -194,10 +194,8 @@ export default function ChatRoom({
 
       {reportData && !showAd && (
         <div className="absolute inset-0 bg-[#050505]/95 flex flex-col items-center justify-center z-50 p-3 sm:p-4 backdrop-blur-xl">
-          {/* ★ 신규: 영수증(Receipt) 디자인의 결과 리포트 카드 */}
           <div ref={reportCardRef} className="bg-white text-black rounded-sm shadow-[0_0_40px_rgba(255,255,255,0.15)] p-5 sm:p-6 w-full max-w-sm flex flex-col max-h-[75vh] font-mono relative overflow-hidden">
             
-            {/* 영수증 지그재그 윗부분 디자인 */}
             <div className="absolute top-0 left-0 w-full h-2 bg-[radial-gradient(circle,transparent_4px,#ffffff_5px)] bg-[length:10px_10px] -mt-1"></div>
 
             <div className="text-center border-b-2 border-dashed border-gray-300 pb-4 mb-4 shrink-0 mt-2">
@@ -211,7 +209,6 @@ export default function ChatRoom({
               </div>
             </div>
 
-            {/* 스탯 프로그레스 바 영역 */}
             <div className="space-y-4 mb-6 px-2 shrink-0">
               <div>
                 <div className="flex justify-between text-[10px] sm:text-xs font-bold mb-1 text-gray-700"><span>LOGIC (논리)</span><span>{logicVal}%</span></div>
@@ -241,7 +238,6 @@ export default function ChatRoom({
               {reportData}
             </div>
 
-            {/* 상대방 스탯 훔쳐보기 (보상형 광고 유도) */}
             {!isSingleMode && partnerId && (
               <div className="mt-4 border-t-2 border-dashed border-gray-300 pt-4 shrink-0">
                 {!isPartnerCardUnlocked ? (
@@ -265,7 +261,6 @@ export default function ChatRoom({
             )}
 
             <div className="mt-4 pt-3 border-t border-gray-200 flex flex-col items-center shrink-0">
-              {/* 바코드 디자인 */}
               <div className="flex justify-center gap-[2px] h-8 sm:h-10 mb-2 w-full max-w-[200px]">
                 {Array.from({ length: 40 }).map((_, i) => (
                   <div key={i} className="bg-black h-full" style={{ width: `${Math.random() * 3 + 1}px`, opacity: Math.random() > 0.2 ? 1 : 0 }}></div>
@@ -274,11 +269,9 @@ export default function ChatRoom({
               <span className="text-[8px] sm:text-[9px] text-gray-400 font-bold tracking-widest">WE-US.ONLINE</span>
             </div>
             
-            {/* 영수증 지그재그 아랫부분 디자인 */}
             <div className="absolute bottom-0 left-0 w-full h-2 bg-[radial-gradient(circle,transparent_4px,#ffffff_5px)] bg-[length:10px_10px] -mb-1 rotate-180"></div>
           </div>
           
-          {/* 외부 버튼 영역 */}
           <div className="w-full max-w-sm mt-4 sm:mt-5 space-y-2 px-1 sm:px-2 shrink-0">
             {!isSingleMode && partnerId && (
               <button onClick={handleAddFriend} className="w-full bg-emerald-500/20 border border-emerald-500/50 hover:bg-emerald-500/30 text-emerald-300 font-bold py-3 sm:py-3.5 rounded-xl transition-colors flex justify-center items-center text-xs sm:text-sm tracking-widest shadow-lg">

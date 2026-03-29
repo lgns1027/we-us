@@ -13,7 +13,6 @@ export default function ProfileView({ userId, tier, personaTitle, socketRef }: a
   const [dmInput, setDmInput] = useState('');
   const dmEndRef = useRef<HTMLDivElement>(null);
 
-  // ★ 신규: 컴포넌트 마운트 시 무조건 로컬 캐시부터 뒤져서 화면에 즉시 띄움 (깜빡임 방지)
   useEffect(() => {
     const cachedNickname = localStorage.getItem('weus_nickname');
     if (cachedNickname) {
@@ -28,7 +27,6 @@ export default function ProfileView({ userId, tier, personaTitle, socketRef }: a
       socketRef.current.on('receive_profile', (data: any) => {
         if (data.nickname) {
           setNickname(data.nickname);
-          // ★ 서버에서 받은 닉네임도 안전하게 로컬에 백업
           localStorage.setItem('weus_nickname', data.nickname);
         }
         setFriendsList(Array.isArray(data.friends) ? data.friends : []);
@@ -56,7 +54,6 @@ export default function ProfileView({ userId, tier, personaTitle, socketRef }: a
   const handleSaveNickname = () => {
     if (editInput.trim() === '') return alert("닉네임을 한 글자 이상 입력해주세요.");
     
-    // ★ 서버로 쏘기 전에 화면부터 바로 변경하고 기기에 각인 (Optimistic UI)
     setNickname(editInput); 
     localStorage.setItem('weus_nickname', editInput);
     
@@ -80,7 +77,6 @@ export default function ProfileView({ userId, tier, personaTitle, socketRef }: a
       
       {activeChatFriend ? (
         <div className="absolute inset-0 z-50 flex flex-col bg-[#050505]">
-          {/* DM 헤더 영역 */}
           <div className="p-3 sm:p-4 border-b border-white/10 flex items-center justify-between shrink-0 bg-[#0a0a0a]">
             <div className="flex items-center gap-3">
               <button onClick={() => setActiveChatFriend(null)} className="text-white/60 hover:text-white px-2 py-1 text-xl font-light">←</button>
@@ -92,7 +88,6 @@ export default function ProfileView({ userId, tier, personaTitle, socketRef }: a
             </div>
           </div>
 
-          {/* DM 채팅 내역 */}
           <div className="flex-1 p-4 overflow-y-auto space-y-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
             {dmMessages.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center opacity-30 text-center">
@@ -118,7 +113,6 @@ export default function ProfileView({ userId, tier, personaTitle, socketRef }: a
             <div ref={dmEndRef} />
           </div>
 
-          {/* DM 입력 폼 */}
           <form onSubmit={sendDm} className="p-3 border-t border-white/5 bg-[#0a0a0a] flex gap-2 shrink-0 items-center">
             <input type="text" value={dmInput} onChange={(e) => setDmInput(e.target.value)} placeholder="메시지 입력..." className="flex-1 bg-white/5 text-white px-5 py-3.5 rounded-full outline-none text-[13px] focus:bg-white/10 transition-colors" />
             <button type="submit" disabled={!dmInput.trim()} className="bg-blue-500 text-white w-10 h-10 rounded-full flex items-center justify-center font-black disabled:opacity-50 disabled:bg-white/10">→</button>
@@ -145,7 +139,6 @@ export default function ProfileView({ userId, tier, personaTitle, socketRef }: a
             </div>
           </div>
 
-          {/* 친구(인맥) 리스트 영역 */}
           <div className="flex-1 flex flex-col mt-4 sm:mt-6 overflow-hidden">
             <div className="flex justify-between items-center mb-3 shrink-0 px-1 sm:px-2">
               <div className="flex items-center gap-2"><span className="text-xs sm:text-sm">🤝</span><span className="text-white/80 text-[10px] sm:text-xs font-bold tracking-widest uppercase">인사이트 인맥</span></div>
