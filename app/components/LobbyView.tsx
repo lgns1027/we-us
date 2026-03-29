@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 
 const LOBBY_CATEGORIES = [
   { id: 'daily', icon: '☕', title: '일상 라운지', desc: '부담 없는 스몰토크와 편안한 일상 대화', options: ['가벼운 스몰토크', '오늘 하루의 하이라이트', '요즘 꽂힌 취미 이야기'], isAi: false },
-  { id: 'lang', icon: '🌍', title: '어학 튜터링', desc: 'AI 튜터 및 글로벌 유저와 실전 회화', options: ['무료 원어민 영어 튜터', '일본어 튜터', '프랑스어 튜터', '한국어(외국인용)'], isAi: true },
+  // ★ 수정: "무료" 단어 제거
+  { id: 'lang', icon: '🌍', title: '어학 튜터링', desc: 'AI 튜터 및 글로벌 유저와 실전 회화', options: ['원어민 영어 튜터', '일본어 튜터', '프랑스어 튜터', '한국어(외국인용)'], isAi: true },
   { id: 'deep', icon: '🍷', title: '딥 토크 살롱', desc: '일상에서 나누기 힘든 철학적, 지적 대화', options: ['최악의 이불킥 경험', '자본주의 생존기', '100억 받기 VS 무병장수'], isAi: false },
   { id: 'roleplay', icon: '🎭', title: '도파민 롤플레잉', desc: '스트레스 해소용 익명 상황극', options: ['진상손님 방어전', '압박 면접'], isAi: false }
 ];
@@ -90,8 +91,9 @@ export default function LobbyView({
 
       {activeModalCat && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-[#111] w-full max-w-lg mx-auto rounded-t-3xl border-t border-x border-white/10 p-6 pb-10 animate-slide-up">
-            <div className="flex justify-between items-center mb-6">
+          {/* ★ 수정: pb-10을 pb-28로 대폭 늘려 내비게이션 바 위로 콘텐츠를 끌어올림 + max-h 추가로 내부 스크롤 활성화 */}
+          <div className="bg-[#111] w-full max-w-lg mx-auto rounded-t-3xl border-t border-x border-white/10 p-6 pb-28 animate-slide-up max-h-[85vh] flex flex-col">
+            <div className="flex justify-between items-center mb-6 shrink-0">
               <div className="flex items-center gap-2">
                 <span className="text-2xl">{activeModalCat.icon}</span>
                 <div>
@@ -102,15 +104,16 @@ export default function LobbyView({
               <button onClick={() => setActiveModalCat(null)} className="text-white/40 hover:text-white text-xl font-light">✕</button>
             </div>
             
-            <div className="space-y-3">
+            {/* ★ 수정: 버튼들이 많아질 경우를 대비해 스크롤 박스로 감쌈 */}
+            <div className="space-y-3 overflow-y-auto flex-1 [&::-webkit-scrollbar]:hidden">
               {activeModalCat.options.map((opt: string) => (
                 <button
                   key={opt}
                   onClick={() => handleTopicSelectAndStart(opt, activeModalCat.isAi)}
-                  className="w-full bg-white/5 hover:bg-white/10 border border-white/5 text-left p-4 rounded-xl text-sm font-semibold text-white/90 transition-colors flex justify-between items-center"
+                  className="w-full bg-white/5 hover:bg-white/10 border border-white/5 text-left p-4 rounded-xl text-sm font-semibold text-white/90 transition-colors flex justify-between items-center shrink-0"
                 >
                   {opt}
-                  <span className="text-emerald-400 text-[10px] font-bold px-2 py-1 bg-emerald-500/10 rounded-full">
+                  <span className="text-emerald-400 text-[10px] font-bold px-2 py-1 bg-emerald-500/10 rounded-full shrink-0">
                     START 🚀
                   </span>
                 </button>
