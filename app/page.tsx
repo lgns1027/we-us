@@ -94,7 +94,6 @@ export default function WeUsApp() {
     const handlePushToken = (e: any) => {
       const token = e.detail;
       if (token && socketRef.current) {
-        // ★ 신규: 푸시 토큰으로 서버에 내 원래 계정 찾아달라고 요청 (닉네임 유령계정 버그 원천 차단)
         socketRef.current.emit('recover_account_by_token', token, (recoveredId: string | null) => {
           let finalId = userId;
           if (recoveredId && recoveredId !== userId) {
@@ -102,7 +101,6 @@ export default function WeUsApp() {
             localStorage.setItem('weus_user_id', recoveredId);
             finalId = recoveredId;
           }
-          // ID 세팅 후 토큰 등록
           if (finalId) {
             socketRef.current?.emit('register_push_token', { userId: finalId, token });
           }
