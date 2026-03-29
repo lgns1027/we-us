@@ -1,30 +1,30 @@
 import React from 'react';
 
-const LOBBY_CATEGORIES = [
-  { id: 'daily', icon: '☕', title: '일상 라운지', desc: '부담 없는 스몰토크와 편안한 일상 대화', options: ['가벼운 스몰토크', '오늘 하루의 하이라이트', '요즘 꽂힌 취미 이야기'] },
-  { id: 'lang', icon: '🌍', title: '어학 튜터링', desc: 'AI 튜터 및 글로벌 유저와 실전 회화', options: ['영어', '일본어', '프랑스어', '한국어(외국인용)'] },
-  { id: 'deep', icon: '🍷', title: '딥 토크 살롱', desc: '일상에서 나누기 힘든 철학적, 지적 대화', options: ['최악의 이불킥 경험', '자본주의 생존기', '100억 받기 VS 무병장수'] },
-  { id: 'roleplay', icon: '🎭', title: '도파민 롤플레잉', desc: '스트레스 해소용 익명 상황극', options: ['진상손님 방어전', '압박 면접'] }
-];
-
 export default function LobbyView({
   selectedCategory, setSelectedCategory, selectedTopic, setSelectedTopic,
   isDropdownOpen, setIsDropdownOpen, isConnecting, isSingleMode, handleMatchStart,
   setStep, factionScores, currentEvent
 }: any) {
-  const currentOptions = LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.options || [];
+  
+  // ★ 신규: 타일 클릭 시 주제를 세팅하고 즉시 매칭을 시작하는 함수
+  const handleDirectMatch = (topic: string, isAi: boolean) => {
+    setSelectedTopic(topic);
+    // 상태 업데이트 타이밍을 위해 약간의 딜레이 후 실행
+    setTimeout(() => {
+      handleMatchStart(isAi, topic);
+    }, 50);
+  };
 
   return (
-    <div className="w-full flex flex-col justify-center space-y-4 sm:space-y-6 flex-1 max-w-sm mx-auto pb-4">
+    <div className="w-full flex flex-col justify-start space-y-4 sm:space-y-5 flex-1 max-w-sm mx-auto pb-4 pt-2">
       
-      <div className="text-center space-y-1 mb-2 sm:mb-3 shrink-0 mt-2">
+      <div className="text-center space-y-1 mb-2 shrink-0">
         <h1 className="text-3xl sm:text-4xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-500 drop-shadow-lg">
           WE US.
         </h1>
         <p className="text-gray-400 font-light tracking-widest text-[9px] sm:text-[10px]">우리가 되어가는 3분의 시간</p>
       </div>
 
-      {/* ★ 변경점: currentEvent가 있을 때(주말)만 배너를 렌더링. 평일엔 아예 사라짐 */}
       {currentEvent && (
         <div 
           onClick={() => {
@@ -52,78 +52,60 @@ export default function LobbyView({
         </div>
       )}
       
-      <div className="grid grid-cols-2 gap-2 sm:gap-3 shrink-0">
-        {LOBBY_CATEGORIES.map(cat => (
-          <button
-            key={cat.id}
-            onClick={() => {
-              setSelectedCategory(cat.id);
-              setSelectedTopic(cat.options[0]); 
-              setIsDropdownOpen(false); 
-            }}
-            className={`p-2.5 sm:p-3 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all border ${
-              selectedCategory === cat.id 
-              ? 'bg-white/10 border-white/30 shadow-[0_0_15px_rgba(255,255,255,0.1)]' 
-              : 'bg-white/[0.02] border-white/5 opacity-50 hover:opacity-100'
-            }`}
-          >
-            <span className="text-lg sm:text-xl mb-0.5">{cat.icon}</span>
-            <span className="text-[9px] sm:text-[10px] font-bold tracking-wider text-white text-center leading-tight">{cat.title}</span>
-          </button>
-        ))}
+      {/* ★ 신규: 직관적인 2x2 다이렉트 매칭 아케이드 타일 */}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 shrink-0 mt-2">
+        <button
+          disabled={isConnecting}
+          onClick={() => handleDirectMatch('가벼운 스몰토크', false)}
+          className="bg-white/[0.03] hover:bg-white/10 border border-white/10 rounded-2xl p-4 flex flex-col items-center justify-center text-center transition-all h-28 sm:h-32 shadow-lg"
+        >
+          <span className="text-2xl sm:text-3xl mb-2">☕</span>
+          <span className="text-xs sm:text-sm font-bold text-white mb-1">일상 라운지</span>
+          <span className="text-[8px] sm:text-[9px] text-white/50">가벼운 익명 스몰토크</span>
+        </button>
+
+        <button
+          disabled={isConnecting}
+          onClick={() => handleDirectMatch('무료 원어민 영어 튜터', true)}
+          className="bg-white/[0.03] hover:bg-white/10 border border-blue-500/30 rounded-2xl p-4 flex flex-col items-center justify-center text-center transition-all h-28 sm:h-32 shadow-[0_0_15px_rgba(59,130,246,0.1)]"
+        >
+          <span className="text-2xl sm:text-3xl mb-2">🇺🇸</span>
+          <span className="text-xs sm:text-sm font-bold text-blue-300 mb-1">원어민 영어 튜터</span>
+          <span className="text-[8px] sm:text-[9px] text-white/50">AI와 실전 회화 (무료)</span>
+        </button>
+
+        <button
+          disabled={isConnecting}
+          onClick={() => handleDirectMatch('자본주의 생존기', false)}
+          className="bg-white/[0.03] hover:bg-white/10 border border-white/10 rounded-2xl p-4 flex flex-col items-center justify-center text-center transition-all h-28 sm:h-32 shadow-lg"
+        >
+          <span className="text-2xl sm:text-3xl mb-2">🍷</span>
+          <span className="text-xs sm:text-sm font-bold text-white mb-1">딥 토크 살롱</span>
+          <span className="text-[8px] sm:text-[9px] text-white/50">지적이고 깊이 있는 대화</span>
+        </button>
+
+        <button
+          disabled={isConnecting}
+          onClick={() => handleDirectMatch('진상손님 방어전', false)}
+          className="bg-white/[0.03] hover:bg-white/10 border border-red-500/30 rounded-2xl p-4 flex flex-col items-center justify-center text-center transition-all h-28 sm:h-32 shadow-[0_0_15px_rgba(239,68,68,0.1)]"
+        >
+          <span className="text-2xl sm:text-3xl mb-2">🎭</span>
+          <span className="text-xs sm:text-sm font-bold text-red-300 mb-1">도파민 롤플레잉</span>
+          <span className="text-[8px] sm:text-[9px] text-white/50">익명 상황극 서바이벌</span>
+        </button>
       </div>
 
-      <div className="bg-white/[0.03] backdrop-blur-xl p-4 sm:p-5 rounded-3xl border border-white/5 shadow-2xl space-y-3 sm:space-y-4 shrink-0">
-        <div className="flex flex-col text-left space-y-2 relative">
-          <label className="text-[10px] sm:text-[11px] text-emerald-400 uppercase tracking-widest font-bold text-center sm:text-left px-1">
-            {LOBBY_CATEGORIES.find(c => c.id === selectedCategory)?.desc || '스페셜 이벤트 큐입니다.'}
-          </label>
-          <div className="relative">
-            <div 
-              onClick={() => { if(selectedCategory !== 'event') setIsDropdownOpen(!isDropdownOpen) }}
-              className={`bg-[#0a0a0a] border border-white/10 text-white text-[12px] sm:text-[14px] rounded-xl w-full p-3 sm:p-3.5 flex justify-between items-center transition-colors ${selectedCategory === 'event' ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:border-white/30'}`}
-            >
-              <span className="truncate pr-2">{selectedTopic}</span>
-              {selectedCategory !== 'event' && <span className={`transition-transform duration-200 text-white/50 text-[10px] shrink-0 ${isDropdownOpen ? 'rotate-180' : ''}`}>▼</span>}
-            </div>
-            {isDropdownOpen && selectedCategory !== 'event' && (
-              <div className="absolute top-[calc(100%+6px)] left-0 w-full bg-[#0a0a0a] border border-emerald-500/30 rounded-xl overflow-hidden z-50 shadow-[0_0_15px_rgba(16,185,129,0.15)] flex flex-col divide-y divide-white/5">
-                {currentOptions.map(opt => (
-                  <button 
-                    key={opt}
-                    onClick={() => { setSelectedTopic(opt); setIsDropdownOpen(false); }}
-                    className={`p-3 text-left text-[12px] sm:text-[13px] transition-colors w-full ${
-                      selectedTopic === opt ? 'bg-emerald-500/20 text-emerald-300 font-bold' : 'text-white/70 hover:bg-white/5'
-                    }`}
-                  >
-                    {opt}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-2 pt-1">
-          <button 
-            onClick={() => setStep && setStep('spectator_list')} 
-            className="w-full relative overflow-hidden bg-gradient-to-r from-red-900/40 to-orange-900/40 border border-red-500/30 text-red-200 hover:from-red-900/60 hover:to-orange-900/60 font-extrabold tracking-wide py-3 sm:py-3.5 rounded-xl transition-all flex justify-center items-center gap-2 text-[13px] sm:text-[14px] shadow-[0_0_15px_rgba(239,68,68,0.2)]"
-          >
-            <div className="absolute inset-0 bg-red-500/10 animate-pulse pointer-events-none"></div>
-            <span className="text-base sm:text-lg relative z-10">🔥</span> 
-            <span className="relative z-10">실시간 콜로세움 관전하기</span>
-          </button>
-          
-          <button 
-            disabled={isConnecting}
-            onClick={() => handleMatchStart(false)}
-            className="w-full bg-white text-black font-extrabold tracking-wide py-3 sm:py-3.5 rounded-xl hover:bg-gray-200 transition-all shadow-lg flex justify-center items-center gap-2 text-[13px] sm:text-[14px]"
-          >
-            {isConnecting && !isSingleMode ? <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin"/> : null}
-            익명 매칭 시작하기
-          </button>
-        </div>
+      <div className="pt-2">
+        <button 
+          onClick={() => setStep && setStep('spectator_list')} 
+          className="w-full relative overflow-hidden bg-gradient-to-r from-red-900/40 to-orange-900/40 border border-red-500/30 text-red-200 hover:from-red-900/60 hover:to-orange-900/60 font-extrabold tracking-wide py-3.5 rounded-xl transition-all flex justify-center items-center gap-2 text-[13px] sm:text-[14px] shadow-[0_0_15px_rgba(239,68,68,0.2)]"
+        >
+          <div className="absolute inset-0 bg-red-500/10 animate-pulse pointer-events-none"></div>
+          <span className="text-base sm:text-lg relative z-10">🔥</span> 
+          <span className="relative z-10">실시간 콜로세움 관전하기</span>
+        </button>
       </div>
+      
     </div>
   );
 }

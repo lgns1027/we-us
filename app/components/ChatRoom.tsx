@@ -14,7 +14,6 @@ export default function ChatRoom({
   
   const [isPartnerCardUnlocked, setIsPartnerCardUnlocked] = useState(false);
   
-  // ★ 신규: 시라노(Cyrano) 추천 답변 및 MBTI 추리 상태
   const [cyranoSuggestions, setCyranoSuggestions] = useState<string>('');
   const [isCyranoLoading, setIsCyranoLoading] = useState(false);
   const [hasGuessedMBTI, setHasGuessedMBTI] = useState(false);
@@ -30,7 +29,6 @@ export default function ChatRoom({
     return () => window.removeEventListener('REWARD_EARNED', handleRewardEarned);
   }, []);
 
-  // ★ 신규: 시라노 귓속말 답변 수신
   useEffect(() => {
     socketRef.current?.on('receive_cyrano_help', (data: any) => {
       setIsCyranoLoading(false);
@@ -53,16 +51,14 @@ export default function ChatRoom({
     setMessages((prev: any) => [...prev, { sender: myRole || '나', text: inputText }]);
     socketRef.current?.emit('send_message', { room: room, roomId: room, text: inputText, partner: partnerRole });
     setInputText('');
-    setCyranoSuggestions(''); // 메시지 보내면 헬프창 닫기
+    setCyranoSuggestions(''); 
   };
 
-  // ★ 신규: 시라노 귓속말 요청 (💡 버튼 클릭 시)
   const requestCyrano = () => {
     setIsCyranoLoading(true);
     socketRef.current?.emit('request_cyrano_help', { room });
   };
 
-  // ★ 신규: MBTI 블라인드 추리 제출
   const submitMBTI = (guess: string) => {
     setHasGuessedMBTI(true);
     socketRef.current?.emit('submit_mbti_guess', { room, guess });
@@ -85,12 +81,12 @@ export default function ChatRoom({
     if (!reportCardRef.current) return;
     setIsCapturing(true);
     try {
-      const canvas = await html2canvas(reportCardRef.current, { scale: 2, backgroundColor: '#0a0a0a', useCORS: true });
+      const canvas = await html2canvas(reportCardRef.current, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
       canvas.toBlob(async (blob) => {
         if (!blob) return;
         if (navigator.share && navigator.canShare && navigator.canShare({ files: [new File([blob], 'weus_card.png', { type: 'image/png' })] })) {
           const file = new File([blob], 'weus_persona.png', { type: 'image/png' });
-          await navigator.share({ title: 'WE US', text: '나의 소통 능력 페르소나!', files: [file] });
+          await navigator.share({ title: 'WE US', text: '나의 소통 능력 영수증!', files: [file] });
         } else {
           const link = document.createElement('a'); link.href = canvas.toDataURL('image/png'); link.download = 'weus_persona.png'; link.click();
           showModal('저장 완료', '인스타그램에 바로 공유해 보세요!', 'alert');
@@ -113,10 +109,21 @@ export default function ChatRoom({
     }
   };
 
+  // ★ 신규: 이번 세션의 통계를 바탕으로 영수증 상단에 박을 칭호 계산
+  const logicVal = reportStats?.logic || 50;
+  const lingVal = reportStats?.linguistics || 50;
+  const empVal = reportStats?.empathy || 50;
+  
+  let sessionTitle = "성장하는 소통러";
+  if (logicVal >= 75 && empVal <= 50) sessionTitle = "🧊 차가운 팩트폭격기";
+  else if (logicVal >= 70 && empVal > 50) sessionTitle = "⚖️ 따뜻한 조언자";
+  else if (lingVal >= 75 && logicVal <= 60) sessionTitle = "✨ 감성적인 음유시인";
+  else if (empVal >= 75 && logicVal <= 60) sessionTitle = "🕊️ 천사표 리스너";
+  else if (logicVal >= 80 && lingVal >= 80) sessionTitle = "👑 무자비한 토론 제왕";
+
   return (
     <div className="w-full flex-1 mb-4 bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative">
       
-      {/* ★ 신규: 종료 30초 전 MBTI 블라인드 추리 팝업 */}
       {timeLeft > 0 && timeLeft <= 30 && selectedTopic.includes('MBTI') && !hasGuessedMBTI && !isAnalyzing && !reportData && (
         <div className="absolute top-[80px] left-1/2 -translate-x-1/2 w-[90%] max-w-[300px] bg-purple-900/90 backdrop-blur-xl border border-purple-500/50 rounded-2xl p-4 shadow-2xl z-40 flex flex-col items-center animate-fade-in-up">
           <span className="text-2xl mb-1">🕵️‍♂️</span>
@@ -187,57 +194,104 @@ export default function ChatRoom({
 
       {reportData && !showAd && (
         <div className="absolute inset-0 bg-[#050505]/95 flex flex-col items-center justify-center z-50 p-3 sm:p-4 backdrop-blur-xl">
-          <div ref={reportCardRef} className="bg-[#0a0a0a] border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-6 w-full max-w-sm shadow-2xl flex flex-col max-h-[70vh]">
-            <div className="flex justify-between items-center mb-4 sm:mb-6 border-b border-white/10 pb-3 sm:pb-4 shrink-0">
-               <h2 className="text-[9px] sm:text-[10px] font-bold tracking-[0.3em] text-white/50">WE US REPORT</h2><span className="text-[9px] sm:text-[10px] text-emerald-400 border border-emerald-400/30 px-2 py-1 rounded-full">{tier}</span>
+          {/* ★ 신규: 영수증(Receipt) 디자인의 결과 리포트 카드 */}
+          <div ref={reportCardRef} className="bg-white text-black rounded-sm shadow-[0_0_40px_rgba(255,255,255,0.15)] p-5 sm:p-6 w-full max-w-sm flex flex-col max-h-[75vh] font-mono relative overflow-hidden">
+            
+            {/* 영수증 지그재그 윗부분 디자인 */}
+            <div className="absolute top-0 left-0 w-full h-2 bg-[radial-gradient(circle,transparent_4px,#ffffff_5px)] bg-[length:10px_10px] -mt-1"></div>
+
+            <div className="text-center border-b-2 border-dashed border-gray-300 pb-4 mb-4 shrink-0 mt-2">
+              <h2 className="text-2xl sm:text-3xl font-black mb-1 tracking-widest uppercase">WE US</h2>
+              <p className="text-[10px] sm:text-[11px] text-gray-500 font-bold tracking-widest">COMMUNICATION RECEIPT</p>
             </div>
             
-            <div className="w-full flex justify-around mb-4 sm:mb-6 px-1 sm:px-2 shrink-0">
-              <div className="flex flex-col items-center"><span className="text-[9px] sm:text-[10px] text-white/40 mb-1">LOGIC</span><span className="text-lg sm:text-xl font-bold text-blue-400">{reportStats?.logic || 50}</span></div>
-              <div className="flex flex-col items-center"><span className="text-[9px] sm:text-[10px] text-white/40 mb-1">LINGUISTICS</span><span className="text-lg sm:text-xl font-bold text-emerald-400">{reportStats?.linguistics || 50}</span></div>
-              <div className="flex flex-col items-center"><span className="text-[9px] sm:text-[10px] text-white/40 mb-1">EMPATHY</span><span className="text-lg sm:text-xl font-bold text-purple-400">{reportStats?.empathy || 50}</span></div>
+            <div className="text-center mb-5 shrink-0">
+              <div className="inline-block bg-black text-white px-5 py-2 rounded-full text-xs sm:text-sm font-bold shadow-md">
+                {sessionTitle}
+              </div>
             </div>
 
-            <h2 className="text-sm sm:text-lg font-light tracking-widest text-center mb-3 sm:mb-4 text-white shrink-0">{isSingleMode ? 'PERSONAL TUTORING' : 'CHEMISTRY ANALYSIS'}</h2>
+            {/* 스탯 프로그레스 바 영역 */}
+            <div className="space-y-4 mb-6 px-2 shrink-0">
+              <div>
+                <div className="flex justify-between text-[10px] sm:text-xs font-bold mb-1 text-gray-700"><span>LOGIC (논리)</span><span>{logicVal}%</span></div>
+                <div className="w-full bg-gray-200 h-2 sm:h-2.5 rounded-full overflow-hidden">
+                  <div className="bg-blue-500 h-full rounded-full transition-all duration-1000" style={{width: `${logicVal}%`}}></div>
+                </div>
+              </div>
+              <div>
+                <div className="flex justify-between text-[10px] sm:text-xs font-bold mb-1 text-gray-700"><span>LINGUISTICS (어휘)</span><span>{lingVal}%</span></div>
+                <div className="w-full bg-gray-200 h-2 sm:h-2.5 rounded-full overflow-hidden">
+                  <div className="bg-emerald-500 h-full rounded-full transition-all duration-1000" style={{width: `${lingVal}%`}}></div>
+                </div>
+              </div>
+              <div>
+                <div className="flex justify-between text-[10px] sm:text-xs font-bold mb-1 text-gray-700"><span>EMPATHY (공감)</span><span>{empVal}%</span></div>
+                <div className="w-full bg-gray-200 h-2 sm:h-2.5 rounded-full overflow-hidden">
+                  <div className="bg-purple-500 h-full rounded-full transition-all duration-1000" style={{width: `${empVal}%`}}></div>
+                </div>
+              </div>
+            </div>
+
+            <h2 className="text-xs sm:text-sm font-bold tracking-widest text-center mb-2 text-gray-500 shrink-0">
+              {isSingleMode ? '[ AI TUTORING ]' : '[ CHEMISTRY ANALYSIS ]'}
+            </h2>
             
-            <div className="overflow-y-auto text-[11px] sm:text-xs text-gray-300 whitespace-pre-line leading-relaxed flex-1 bg-white/[0.02] p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-white/5 [&::-webkit-scrollbar]:hidden">
+            <div className="overflow-y-auto text-[11px] sm:text-xs text-gray-800 whitespace-pre-line leading-relaxed flex-1 bg-gray-50 p-3 sm:p-4 rounded-md border border-gray-200 [&::-webkit-scrollbar]:hidden">
               {reportData}
             </div>
 
+            {/* 상대방 스탯 훔쳐보기 (보상형 광고 유도) */}
             {!isSingleMode && partnerId && (
-              <div className="mt-4 border-t border-white/10 pt-4 shrink-0">
+              <div className="mt-4 border-t-2 border-dashed border-gray-300 pt-4 shrink-0">
                 {!isPartnerCardUnlocked ? (
                   <button
                     onClick={handleWatchAdForPartnerCard}
-                    className="w-full bg-gradient-to-r from-purple-900/40 to-pink-900/40 border border-purple-500/50 hover:from-purple-900/60 hover:to-pink-900/60 text-purple-300 font-bold py-3 rounded-xl flex justify-center items-center gap-2 text-xs sm:text-sm transition-all shadow-[0_0_15px_rgba(168,85,247,0.2)] animate-pulse"
+                    className="w-full bg-gradient-to-r from-purple-100 to-pink-100 border border-purple-200 hover:from-purple-200 hover:to-pink-200 text-purple-700 font-bold py-3 rounded-xl flex justify-center items-center gap-2 text-xs sm:text-sm transition-all"
                   >
-                    🔒 상대방({partnerRole}) 스탯 훔쳐보기
+                    🔒 상대방({partnerRole}) 스탯 확인하기
                   </button>
                 ) : (
-                  <div className="bg-purple-900/20 border border-purple-500/30 p-3 rounded-xl animate-fade-in">
-                    <h3 className="text-[10px] sm:text-xs font-bold text-purple-300 mb-1 text-center">🔓 상대방({partnerRole})의 예상 스탯</h3>
-                    <div className="flex justify-around mt-2">
-                      <div className="flex flex-col items-center"><span className="text-[8px] text-white/40">LOGIC</span><span className="text-sm font-bold text-gray-300">{Math.min(100, Math.max(0, (reportStats?.logic || 50) + Math.floor(Math.random() * 20 - 10)))}</span></div>
-                      <div className="flex flex-col items-center"><span className="text-[8px] text-white/40">LINGUISTICS</span><span className="text-sm font-bold text-gray-300">{Math.min(100, Math.max(0, (reportStats?.linguistics || 50) + Math.floor(Math.random() * 20 - 10)))}</span></div>
-                      <div className="flex flex-col items-center"><span className="text-[8px] text-white/40">EMPATHY</span><span className="text-sm font-bold text-gray-300">{Math.min(100, Math.max(0, (reportStats?.empathy || 50) + Math.floor(Math.random() * 20 - 10)))}</span></div>
+                  <div className="bg-purple-50 border border-purple-200 p-3 rounded-xl">
+                    <h3 className="text-[10px] sm:text-xs font-bold text-purple-700 mb-2 text-center">🔓 상대방({partnerRole})의 예상 스탯</h3>
+                    <div className="flex justify-around mt-1">
+                      <div className="flex flex-col items-center"><span className="text-[8px] text-gray-400 font-bold">LOGIC</span><span className="text-sm font-black text-gray-800">{Math.min(100, Math.max(0, logicVal + Math.floor(Math.random() * 20 - 10)))}</span></div>
+                      <div className="flex flex-col items-center"><span className="text-[8px] text-gray-400 font-bold">LINGUISTICS</span><span className="text-sm font-black text-gray-800">{Math.min(100, Math.max(0, lingVal + Math.floor(Math.random() * 20 - 10)))}</span></div>
+                      <div className="flex flex-col items-center"><span className="text-[8px] text-gray-400 font-bold">EMPATHY</span><span className="text-sm font-black text-gray-800">{Math.min(100, Math.max(0, empVal + Math.floor(Math.random() * 20 - 10)))}</span></div>
                     </div>
                   </div>
                 )}
               </div>
             )}
 
-            <div className="mt-3 sm:mt-4 text-center text-[8px] sm:text-[10px] text-white/30 font-mono shrink-0">we-us.online</div>
+            <div className="mt-4 pt-3 border-t border-gray-200 flex flex-col items-center shrink-0">
+              {/* 바코드 디자인 */}
+              <div className="flex justify-center gap-[2px] h-8 sm:h-10 mb-2 w-full max-w-[200px]">
+                {Array.from({ length: 40 }).map((_, i) => (
+                  <div key={i} className="bg-black h-full" style={{ width: `${Math.random() * 3 + 1}px`, opacity: Math.random() > 0.2 ? 1 : 0 }}></div>
+                ))}
+              </div>
+              <span className="text-[8px] sm:text-[9px] text-gray-400 font-bold tracking-widest">WE-US.ONLINE</span>
+            </div>
+            
+            {/* 영수증 지그재그 아랫부분 디자인 */}
+            <div className="absolute bottom-0 left-0 w-full h-2 bg-[radial-gradient(circle,transparent_4px,#ffffff_5px)] bg-[length:10px_10px] -mb-1 rotate-180"></div>
           </div>
           
-          <div className="w-full max-w-sm mt-3 sm:mt-4 space-y-2 px-1 sm:px-2 shrink-0">
+          {/* 외부 버튼 영역 */}
+          <div className="w-full max-w-sm mt-4 sm:mt-5 space-y-2 px-1 sm:px-2 shrink-0">
             {!isSingleMode && partnerId && (
-              <button onClick={handleAddFriend} className="w-full bg-emerald-500/20 border border-emerald-500/50 hover:bg-emerald-500/30 text-emerald-300 font-bold py-3 sm:py-3.5 rounded-xl transition-colors flex justify-center items-center text-xs sm:text-sm tracking-widest">
+              <button onClick={handleAddFriend} className="w-full bg-emerald-500/20 border border-emerald-500/50 hover:bg-emerald-500/30 text-emerald-300 font-bold py-3 sm:py-3.5 rounded-xl transition-colors flex justify-center items-center text-xs sm:text-sm tracking-widest shadow-lg">
                 🤝 인사이트 인맥(친구) 추가하기
               </button>
             )}
             <div className="flex gap-2 w-full">
-              <button onClick={handleShareCard} disabled={isCapturing} className="flex-1 bg-white text-black font-bold py-3 sm:py-3.5 rounded-xl hover:bg-gray-200 flex justify-center items-center text-xs sm:text-sm transition-colors">{isCapturing ? '처리중...' : '📸 캡처'}</button>
-              <button onClick={() => { setReportData(null); forceLeaveRoom(); }} className="px-5 sm:px-6 bg-transparent hover:bg-white/5 text-white/70 font-semibold py-3 sm:py-3.5 rounded-xl border border-white/10 text-xs sm:text-sm transition-colors">로비</button>
+              <button onClick={handleShareCard} disabled={isCapturing} className="flex-1 bg-white text-black font-extrabold py-3 sm:py-3.5 rounded-xl hover:bg-gray-200 flex justify-center items-center text-xs sm:text-sm transition-colors shadow-lg">
+                {isCapturing ? '처리중...' : '📸 인스타 스토리 공유'}
+              </button>
+              <button onClick={() => { setReportData(null); forceLeaveRoom(); }} className="px-5 sm:px-6 bg-[#1f2937] hover:bg-[#374151] text-white font-semibold py-3 sm:py-3.5 rounded-xl text-xs sm:text-sm transition-colors shadow-lg">
+                로비로
+              </button>
             </div>
           </div>
         </div>
@@ -289,7 +343,6 @@ export default function ChatRoom({
         </div>
       )}
 
-      {/* ★ 신규: 시라노 추천 팝업 (입력창 바로 위에 렌더링) */}
       {cyranoSuggestions && (
         <div className="absolute bottom-[60px] sm:bottom-[70px] left-0 w-full p-2 bg-[#050505]/95 border-t border-white/10 z-20 flex flex-col gap-2 shadow-2xl">
           <div className="flex justify-between items-center px-1">
@@ -305,7 +358,6 @@ export default function ChatRoom({
       )}
 
       <form onSubmit={sendMessage} className="p-2 sm:p-3 bg-[#050505] border-t border-white/5 flex gap-2 z-30 relative shrink-0">
-        {/* ★ 신규: 시라노(Cyrano) 헬프 버튼 */}
         <button type="button" onClick={requestCyrano} disabled={isCyranoLoading || isAnalyzing || !!reportData} className="bg-purple-900/30 border border-purple-500/30 text-purple-300 w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs sm:text-sm shrink-0 transition-colors hover:bg-purple-900/50">
           {isCyranoLoading ? '⏳' : '💡'}
         </button>

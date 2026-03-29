@@ -245,12 +245,16 @@ export default function WeUsApp() {
     setStep('lobby'); setIsTyping(false); setIsConnecting(false); setMyRole(''); setPartnerRole('');
   };
 
-  const handleMatchStart = (isAiMode: boolean) => {
+  // ★ 변경점: 다이렉트 매칭을 위해 directTopic 파라미터 추가
+  const handleMatchStart = (isAiMode: boolean, directTopic?: string) => {
+    const topicToUse = directTopic || selectedTopic;
     setIsConnecting(true); setIsSingleMode(isAiMode);
-    if (ROLE_MAP[selectedTopic] || selectedCategory === 'event') setStep('role_select');
-    else {
-      if (isAiMode) socketRef.current?.emit('start_ai_chat', { topic: selectedTopic, myRole: '익명', aiRole: 'AI 파트너', userId });
-      else socketRef.current?.emit('join_queue', { topic: selectedTopic, role: 'random', userId });
+    
+    if (ROLE_MAP[topicToUse] || (!directTopic && selectedCategory === 'event')) {
+      setStep('role_select');
+    } else {
+      if (isAiMode) socketRef.current?.emit('start_ai_chat', { topic: topicToUse, myRole: '익명', aiRole: 'AI 파트너', userId });
+      else socketRef.current?.emit('join_queue', { topic: topicToUse, role: 'random', userId });
       setStep('waiting');
     }
     setIsConnecting(false);
