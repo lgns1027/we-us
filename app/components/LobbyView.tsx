@@ -16,7 +16,6 @@ export default function LobbyView({
   const [clickedTile, setClickedTile] = useState<string | null>(null);
 
   const openTopicModal = (catId: string) => {
-    // 터치 시 쫀득한 애니메이션을 위한 상태 저장
     setClickedTile(catId);
     setTimeout(() => setClickedTile(null), 200);
 
@@ -36,7 +35,6 @@ export default function LobbyView({
   return (
     <div className="w-full flex flex-col justify-start space-y-4 sm:space-y-5 flex-1 max-w-sm mx-auto pb-4 pt-2 relative">
       
-      {/* 로비 타이틀 영역 */}
       <div className="text-center space-y-1 mb-2 shrink-0 animate-fade-in-up">
         <h1 className="text-3xl sm:text-4xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-500 drop-shadow-lg">
           WE US.
@@ -44,7 +42,6 @@ export default function LobbyView({
         <p className="text-gray-400 font-light tracking-widest text-[9px] sm:text-[10px]">우리가 되어가는 3분의 시간</p>
       </div>
 
-      {/* 데일리 스페셜 이벤트 배너 */}
       {currentEvent && (
         <div 
           onClick={() => {
@@ -69,7 +66,6 @@ export default function LobbyView({
         </div>
       )}
       
-      {/* 2x2 카테고리 타일 그리드 (역동적인 모션 적용) */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4 shrink-0 mt-2">
         {LOBBY_CATEGORIES.map(cat => (
           <button
@@ -80,7 +76,6 @@ export default function LobbyView({
               ${clickedTile === cat.id ? 'scale-90 opacity-70' : 'active:scale-95'}
             `}
           >
-            {/* 아이콘 둥둥 뜨는 모션 */}
             <span className="text-2xl sm:text-3xl mb-2 relative z-10 transition-transform duration-300 group-hover:-translate-y-2 group-hover:scale-110">
               {cat.icon}
             </span>
@@ -94,7 +89,6 @@ export default function LobbyView({
         ))}
       </div>
 
-      {/* 관전 버튼 */}
       <div className="pt-2">
         <button 
           onClick={() => setStep && setStep('spectator_list')} 
@@ -106,7 +100,6 @@ export default function LobbyView({
         </button>
       </div>
 
-      {/* ★ 세부 주제 선택 바텀 시트 모달 (스무스 업 애니메이션 적용) */}
       {activeModalCat && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/60 backdrop-blur-sm transition-opacity duration-300">
           <div 
@@ -124,7 +117,6 @@ export default function LobbyView({
               <button onClick={() => setActiveModalCat(null)} className="text-white/40 hover:text-white hover:rotate-90 transition-transform text-2xl font-light w-8 h-8 flex items-center justify-center rounded-full bg-white/5">✕</button>
             </div>
             
-            {/* 리스트 아이템 순차적 등장 애니메이션 */}
             <div className="space-y-3 overflow-y-auto flex-1 [&::-webkit-scrollbar]:hidden pb-4">
               {activeModalCat.options.map((opt: string, index: number) => (
                 <button
@@ -142,8 +134,8 @@ export default function LobbyView({
             </div>
           </div>
           
-          {/* Tailwind 커스텀 애니메이션 정의용 Style 태그 */}
-          <style dangerouslySetContent={{__html: `
+          {/* ★ 수정된 부분: dangerouslySetInnerHTML 사용 */}
+          <style dangerouslySetInnerHTML={{__html: `
             @keyframes slideUp {
               from { transform: translateY(100%); }
               to { transform: translateY(0); }
