@@ -10,7 +10,7 @@ const LOBBY_CATEGORIES = [
 
 export default function LobbyView({
   selectedCategory, setSelectedCategory, selectedTopic, setSelectedTopic,
-  isConnecting, handleMatchStart, setStep, factionScores, currentEvent
+  isConnecting, handleMatchStart, setStep, factionScores, currentEvent, myReports
 }: any) {
   
   const [activeModalCat, setActiveModalCat] = useState<any>(null);
@@ -44,6 +44,17 @@ export default function LobbyView({
         </h1>
         <p className="text-gray-400 font-light tracking-widest text-[9px] sm:text-[10px]">우리가 되어가는 3분의 시간</p>
       </div>
+
+      {/* 퍼소나 훅 배너 — 기록이 없는 신규 유저에게만 표시 */}
+      {(!myReports || myReports.length === 0) && (
+        <div className="w-full flex items-center gap-3 bg-white/[0.03] border border-white/10 rounded-2xl px-4 py-3 shrink-0">
+          <span className="text-xl shrink-0">🔒</span>
+          <p className="text-[11px] sm:text-xs text-white/60 leading-snug">
+            <span className="text-white font-bold">소통 퍼소나를 해금하세요.</span>
+            {' '}3분 대화를 완료하면 AI가 당신의 소통 유형을 분석해드립니다.
+          </p>
+        </div>
+      )}
 
       {/* 데일리 스페셜 이벤트 배너 유지 */}
       {currentEvent && (

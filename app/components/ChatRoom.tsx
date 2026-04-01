@@ -267,6 +267,21 @@ export default function ChatRoom({
                 ))}
               </div>
               <span className="text-[8px] sm:text-[9px] text-gray-400 font-bold tracking-widest">WE-US.ONLINE</span>
+
+              {/* ── Viral share footer — captured by html2canvas ── */}
+              <div className="mt-3 flex items-center gap-3 w-full justify-center">
+                {/* QR code placeholder — 11×11 CSS-drawn squares, no external dependency */}
+                <div className="shrink-0 w-12 h-12 sm:w-14 sm:h-14 grid grid-cols-3 gap-[2px] p-1 border border-gray-300 rounded-sm bg-white">
+                  {[1,1,0, 1,0,1, 0,1,1, 1,0,0, 0,1,0, 1,1,0, 0,0,1, 1,0,1, 0,1,0].map((v, i) => (
+                    <div key={i} className={`rounded-[1px] ${v ? 'bg-black' : 'bg-white'}`} />
+                  ))}
+                </div>
+                <div className="flex flex-col text-left">
+                  <span className="text-[8px] sm:text-[9px] text-gray-500 font-bold tracking-widest leading-tight">App Store에서</span>
+                  <span className="text-[10px] sm:text-[11px] text-black font-black tracking-wider leading-tight">WE US 검색</span>
+                  <span className="text-[7px] sm:text-[8px] text-gray-400 tracking-widest leading-tight mt-0.5">3분 익명 대화 · AI 분석</span>
+                </div>
+              </div>
             </div>
             
             <div className="absolute bottom-0 left-0 w-full h-2 bg-[radial-gradient(circle,transparent_4px,#ffffff_5px)] bg-[length:10px_10px] -mb-1 rotate-180"></div>

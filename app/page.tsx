@@ -120,7 +120,14 @@ export default function WeUsApp() {
     socketRef.current.on('matched', (data) => {
       setIsConnecting(false); setRoom(data.roomName || data.roomId);
       setMyRole(data.myRole || '나'); setPartnerRole(data.partner || '상대방');
-      setStep('chat'); setTimeLeft(180); setHasVoted(false); setVoteStatus(''); setExtensionCount(0); 
+      setStep('chat');
+      // ★ FIX-1: derive timeLeft from server's endTime so client clock stays
+      //   in sync even if the matched event arrives late (network jitter).
+      const initialSeconds = data.endTime
+        ? Math.max(0, Math.round((data.endTime - Date.now()) / 1000))
+        : 180;
+      setTimeLeft(initialSeconds);
+      setHasVoted(false); setVoteStatus(''); setExtensionCount(0);
       setIsAnalyzing(false); setReportData(null); setReportStats(null); setPartnerId(null); setShowAd(false); setIsTyping(false); 
       
       let missionText = `당신은 [${data.myRole}] 역할을 배정받았습니다. 대화를 시작해 보세요.`;
@@ -155,7 +162,13 @@ export default function WeUsApp() {
     });
 
     socketRef.current.on('time_extended', (data) => {
-      setTimeLeft((prev) => prev + data.addedTime); setHasVoted(false); setVoteStatus(''); setExtensionCount(data.currentExtensions);
+      // ★ FIX-1: if server sends updated endTime, re-sync; otherwise fall back to addedTime
+      if (data.endTime) {
+        setTimeLeft(Math.max(0, Math.round((data.endTime - Date.now()) / 1000)));
+      } else {
+        setTimeLeft((prev) => prev + data.addedTime);
+      }
+      setHasVoted(false); setVoteStatus(''); setExtensionCount(data.currentExtensions);
       setMessages((prev) => [...prev, { sender: 'System', text: `🎉 2분 연장되었습니다! (남은 기회: ${2 - data.currentExtensions}번)` }]);
     });
 
@@ -319,7 +332,7 @@ export default function WeUsApp() {
 
       <main className="flex-1 w-full max-w-lg mx-auto flex flex-col relative z-10 px-4 pt-8 pb-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         {step === 'lobby' && activeTab === 'lobby' && (
-          <LobbyView selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} selectedTopic={selectedTopic} setSelectedTopic={setSelectedTopic} isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} isConnecting={isConnecting} isSingleMode={isSingleMode} handleMatchStart={handleMatchStart} setStep={setStep} factionScores={factionScores} currentEvent={currentEvent} />
+          <LobbyView selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} selectedTopic={selectedTopic} setSelectedTopic={setSelectedTopic} isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} isConnecting={isConnecting} isSingleMode={isSingleMode} handleMatchStart={handleMatchStart} setStep={setStep} factionScores={factionScores} currentEvent={currentEvent} myReports={myReports} />
         )}
         {step === 'lobby' && activeTab === 'myRecord' && (
           <RecordView userId={userId} myReports={myReports} totalPlayHours={totalPlayHours} personaTitle={pTitle} personaDesc={pDesc} tier={tier} avgLogic={avgLogic} avgLinguistics={avgLinguistics} avgEmpathy={avgEmpathy} />

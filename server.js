@@ -273,8 +273,10 @@ function tryMatch(topicKey) {
     user1.socket.roomName = roomName;
     user2.socket.roomName = roomName;
 
-    io.to(user1.id).emit('matched', { roomName, partner: role2, myRole: role1, participantCount: 2 });
-    io.to(user2.id).emit('matched', { roomName, partner: role1, myRole: role2, participantCount: 2 });
+    // ★ FIX-1: send endTime so the frontend can sync its countdown to the
+    //   server clock instead of independently counting down from 180.
+    io.to(user1.id).emit('matched', { roomName, partner: role2, myRole: role1, participantCount: 2, endTime: activeRooms[roomName].endTime });
+    io.to(user2.id).emit('matched', { roomName, partner: role1, myRole: role2, participantCount: 2, endTime: activeRooms[roomName].endTime });
     
     console.log(`✅ [매칭 성공] ${roomName} 생성 (${role1} vs ${role2})`);
   };
@@ -531,7 +533,8 @@ io.on('connection', (socket) => {
       consecutiveCount: 0
     };
 
-    socket.emit('matched', { roomId: roomId, partner: socket.aiPartnerRole, myRole: socket.userAlias, participantCount: 2 });
+    // ★ FIX-1: include endTime for frontend clock sync
+    socket.emit('matched', { roomId: roomId, partner: socket.aiPartnerRole, myRole: socket.userAlias, participantCount: 2, endTime: activeRooms[roomId].endTime });
     socket.emit('receive_message', { sender: 'System', text: `[시스템] '${topic}' 모드가 시작되었습니다. 당신은 [${socket.userAlias}]입니다.` });
   });
 
@@ -639,8 +642,9 @@ io.on('connection', (socket) => {
 
     if (roomVotes[room].size === roomData.participants) {
       roomData.extensionCount += 1;
-      roomData.endTime += (120 * 1000); 
-      io.to(room).emit('time_extended', { addedTime: 120, currentExtensions: roomData.extensionCount });
+      roomData.endTime += (120 * 1000);
+      // ★ FIX-1: send updated endTime so clients re-sync their countdown
+      io.to(room).emit('time_extended', { addedTime: 120, currentExtensions: roomData.extensionCount, endTime: roomData.endTime });
       roomVotes[room].clear();
     } else {
       socket.to(room).emit('partner_wants_extension', { currentVotes: roomVotes[room].size, total: roomData.participants });
@@ -829,6 +833,8 @@ io.on('connection', (socket) => {
       socket.to(room).emit('receive_message', { sender: 'System', text: `⚠️ 상대방의 연결이 불안정합니다. (10초 대기 중...)` });
       
       setTimeout(() => {
+        // ★ FIX-4: room may already be deleted by the report interval if the
+        //   disconnect happened right at endTime. Guard is already here — safe.
         if (activeRooms[room]) {
           io.to(room).emit('partner_left');
           delete activeRooms[room];
@@ -843,78 +849,106 @@ io.on('connection', (socket) => {
 // 서버 타이머: 시간 초과 시 리포트 자동 생성
 // ==========================================
 
-setInterval(async () => {
+setInterval(() => {
   const now = Date.now();
   for (const room in activeRooms) {
     const roomData = activeRooms[room];
-    
-    if (now >= roomData.endTime && !roomData.isGeneratingReport) {
-      roomData.isGeneratingReport = true;
 
-      const activeEvent = getCurrentEvent();
-      if (activeEvent && roomData.topic === activeEvent.topic) {
-        const votesA = roomData.votesA || 0;
-        const votesB = roomData.votesB || 0;
-        if (votesA > votesB) globalScoreT += 10;
-        else if (votesB > votesA) globalScoreF += 10;
-        else { globalScoreT += 5; globalScoreF += 5; } 
-        
-        io.emit('faction_score_update', { 
-          T: globalScoreT, 
-          F: globalScoreF,
-          currentEvent: activeEvent
-        });
-      }
+    if (now < roomData.endTime || roomData.isGeneratingReport) continue;
 
-      if (roomData.history.length < 4) {
-        io.to(room).emit('receive_report', { error: true });
-        continue;
-      }
-      
-      let systemPrompt = getPersonaPrompt(roomData.topic, true);
+    // ★ FIX-2: set the lock immediately and synchronously before any await,
+    //   so no second iteration of this interval can enter this branch.
+    roomData.isGeneratingReport = true;
 
-      const conversationText = roomData.type === 'single'
-        ? roomData.history.map(msg => `${msg.role === 'user' ? '나' : '상대방'}: ${msg.content}`).join('\n')
-        : roomData.history.join('\n');
-      
-      const reportContent = await getGoogleAIResponse(systemPrompt, [{ role: 'user', content: conversationText }], 300); 
-      
-      let logicScore = 50, linguisticsScore = 50, empathyScore = 50;
-      const logicMatch = reportContent.match(/\[LOGIC:\s*(\d+)\]/i);
-      const linguisticsMatch = reportContent.match(/\[LINGUISTICS:\s*(\d+)\]/i);
-      const empathyMatch = reportContent.match(/\[EMPATHY:\s*(\d+)\]/i);
+    // ★ FIX-4: remove the room from activeRooms right away so that
+    //   (a) a concurrent disconnect timeout cannot double-delete,
+    //   (b) this interval never visits the room again.
+    delete activeRooms[room];
+    if (roomVotes[room]) delete roomVotes[room];
 
-      if (logicMatch) logicScore = parseInt(logicMatch[1]);
-      if (linguisticsMatch) linguisticsScore = parseInt(linguisticsMatch[1]);
-      if (empathyMatch) empathyScore = parseInt(empathyMatch[1]);
-      
-      const cleanReportText = reportContent.replace(/\[LOGIC:.*\]|\[LINGUISTICS:.*\]|\[EMPATHY:.*\]/gi, '').trim();
-
+    // Run the async report work in a self-contained IIFE so the interval
+    // callback itself stays synchronous (avoids unhandled-rejection on throw).
+    (async () => {
       try {
-        if (!reportContent.includes("불안정하여")) {
+        const activeEvent = getCurrentEvent();
+        if (activeEvent && roomData.topic === activeEvent.topic) {
+          const votesA = roomData.votesA || 0;
+          const votesB = roomData.votesB || 0;
+          if (votesA > votesB) globalScoreT += 10;
+          else if (votesB > votesA) globalScoreF += 10;
+          else { globalScoreT += 5; globalScoreF += 5; }
+
+          io.emit('faction_score_update', { T: globalScoreT, F: globalScoreF, currentEvent: activeEvent });
+        }
+
+        if (roomData.history.length < 4) {
+          io.to(room).emit('receive_report', { error: true });
+          return;
+        }
+
+        const systemPrompt = getPersonaPrompt(roomData.topic, true);
+        const conversationText = roomData.type === 'single'
+          ? roomData.history.map(msg => `${msg.role === 'user' ? '나' : '상대방'}: ${msg.content}`).join('\n')
+          : roomData.history.join('\n');
+
+        // ★ FIX-3: getGoogleAIResponse can throw (network error, quota, etc.).
+        //   Any exception is caught below, which emits an error report instead
+        //   of leaving the client stuck on the "Analyzing..." screen forever.
+        const reportContent = await getGoogleAIResponse(
+          systemPrompt,
+          [{ role: 'user', content: conversationText }],
+          300
+        );
+
+        // Treat the fallback "불안정하여" string as an AI failure
+        if (!reportContent || reportContent.includes("불안정하여")) {
+          io.to(room).emit('receive_report', { error: true });
+          return;
+        }
+
+        let logicScore = 50, linguisticsScore = 50, empathyScore = 50;
+        const logicMatch      = reportContent.match(/\[LOGIC:\s*(\d+)\]/i);
+        const linguisticsMatch = reportContent.match(/\[LINGUISTICS:\s*(\d+)\]/i);
+        const empathyMatch    = reportContent.match(/\[EMPATHY:\s*(\d+)\]/i);
+
+        if (logicMatch)       logicScore       = parseInt(logicMatch[1]);
+        if (linguisticsMatch) linguisticsScore = parseInt(linguisticsMatch[1]);
+        if (empathyMatch)     empathyScore     = parseInt(empathyMatch[1]);
+
+        const cleanReportText = reportContent
+          .replace(/\[LOGIC:.*?\]|\[LINGUISTICS:.*?\]|\[EMPATHY:.*?\]/gi, '')
+          .trim();
+
+        try {
           await Report.create({
-            roomName: room, 
-            userIds: Array.from(roomData.userIds), 
+            roomName: room,
+            userIds: Array.from(roomData.userIds),
             type: roomData.type,
-            topic: roomData.topic, 
-            participants: roomData.participants, 
-            fullLog: roomData.type === 'single' ? roomData.history.map(m => m.content) : roomData.history,
-            aiReport: cleanReportText, 
+            topic: roomData.topic,
+            participants: roomData.participants,
+            fullLog: roomData.type === 'single'
+              ? roomData.history.map(m => m.content)
+              : roomData.history,
+            aiReport: cleanReportText,
             stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore }
           });
+        } catch (dbError) {
+          console.error(`❌ [DB 저장 오류] ${room}:`, dbError.message);
         }
-      } catch (dbError) {}
 
-      if (reportContent.includes("불안정하여")) {
-        io.to(room).emit('receive_report', { error: true });
-      } else {
-        io.to(room).emit('receive_report', { 
-          reportText: cleanReportText, 
+        io.to(room).emit('receive_report', {
+          reportText: cleanReportText,
           stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore },
-          partnerId: Array.from(roomData.userIds).find(id => id !== null) 
+          partnerId: Array.from(roomData.userIds).find(id => id !== null)
         });
+
+      } catch (err) {
+        // ★ FIX-3: top-level catch — any unhandled throw (Gemini crash, parse
+        //   error, etc.) still sends an error event so the client is never stuck.
+        console.error(`❌ [리포트 생성 실패] ${room}:`, err.message);
+        io.to(room).emit('receive_report', { error: true });
       }
-    }
+    })();
   }
 }, 1000);
 
