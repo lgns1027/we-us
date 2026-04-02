@@ -63,6 +63,13 @@ export default function WeUsApp() {
   const [factionScores, setFactionScores] = useState({ T: 0, F: 0 });
   const [currentEvent, setCurrentEvent] = useState<any>(null);
 
+  // Live-count props for LobbyView dopamine hooks
+  const [onlineCount, setOnlineCount] = useState(247);
+  const [eventParticipants, setEventParticipants] = useState(38);
+  const [queueCounts, setQueueCounts] = useState({ daily: 89, lang: 0, deep: 43, roleplay: 31 });
+  const [liveRoomCount, setLiveRoomCount] = useState(12);
+  const [spectatorCount, setSpectatorCount] = useState(84);
+
   const [sysModal, setSysModal] = useState({ isOpen: false, title: '', desc: '', type: 'alert', onConfirm: () => {} });
   const showModal = (title: string, desc: string, type: 'alert' | 'confirm' = 'alert', onConfirm = () => {}) => {
     setSysModal({ isOpen: true, title, desc, type, onConfirm });
@@ -332,7 +339,15 @@ export default function WeUsApp() {
 
       <main className="flex-1 w-full max-w-lg mx-auto flex flex-col relative z-10 px-4 pt-8 pb-4 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         {step === 'lobby' && activeTab === 'lobby' && (
-          <LobbyView selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory} selectedTopic={selectedTopic} setSelectedTopic={setSelectedTopic} isDropdownOpen={isDropdownOpen} setIsDropdownOpen={setIsDropdownOpen} isConnecting={isConnecting} isSingleMode={isSingleMode} handleMatchStart={handleMatchStart} setStep={setStep} factionScores={factionScores} currentEvent={currentEvent} myReports={myReports} />
+          <LobbyView
+            selectedCategory={selectedCategory} setSelectedCategory={setSelectedCategory}
+            selectedTopic={selectedTopic} setSelectedTopic={setSelectedTopic}
+            isConnecting={isConnecting} handleMatchStart={handleMatchStart}
+            setStep={setStep as (s: string) => void}
+            factionScores={factionScores} currentEvent={currentEvent} myReports={myReports}
+            onlineCount={onlineCount} eventParticipants={eventParticipants}
+            queueCounts={queueCounts} liveRoomCount={liveRoomCount} spectatorCount={spectatorCount}
+          />
         )}
         {step === 'lobby' && activeTab === 'myRecord' && (
           <RecordView userId={userId} myReports={myReports} totalPlayHours={totalPlayHours} personaTitle={pTitle} personaDesc={pDesc} tier={tier} avgLogic={avgLogic} avgLinguistics={avgLinguistics} avgEmpathy={avgEmpathy} />
