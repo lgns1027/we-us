@@ -120,10 +120,13 @@ export default function ChatRoom({
   else if (empVal >= 75 && logicVal <= 60) sessionTitle = "🕊️ 천사표 리스너";
   else if (logicVal >= 80 && lingVal >= 80) sessionTitle = "👑 무자비한 토론 제왕";
 
+  // ★ 대표님 기획: 남은 시간에 따른 3단계 색상 로직 적용
+  const timerBgColor = timeLeft > 60 ? 'bg-emerald-500' : timeLeft > 30 ? 'bg-amber-500' : 'bg-red-500 animate-pulse';
+  const timerTextColor = timeLeft > 60 ? 'text-white' : timeLeft > 30 ? 'text-amber-400' : 'text-red-400';
+
   return (
     <div className="w-full flex-1 mb-4 bg-[#0a0a0a]/80 backdrop-blur-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden border border-white/10 relative">
       
-      {/* ★ 변경점: currentEvent를 기반으로 추리 팝업 버튼 이름이 동적으로 변경됨 */}
       {timeLeft > 0 && timeLeft <= 30 && currentEvent && selectedTopic === currentEvent.topic && !hasGuessedMBTI && !isAnalyzing && !reportData && (
         <div className="absolute top-[80px] left-1/2 -translate-x-1/2 w-[90%] max-w-[300px] bg-purple-900/90 backdrop-blur-xl border border-purple-500/50 rounded-2xl p-4 shadow-2xl z-40 flex flex-col items-center animate-fade-in-up">
           <span className="text-2xl mb-1">🕵️‍♂️</span>
@@ -268,9 +271,7 @@ export default function ChatRoom({
               </div>
               <span className="text-[8px] sm:text-[9px] text-gray-400 font-bold tracking-widest">WE-US.ONLINE</span>
 
-              {/* ── Viral share footer — captured by html2canvas ── */}
               <div className="mt-3 flex items-center gap-3 w-full justify-center">
-                {/* QR code placeholder — 11×11 CSS-drawn squares, no external dependency */}
                 <div className="shrink-0 w-12 h-12 sm:w-14 sm:h-14 grid grid-cols-3 gap-[2px] p-1 border border-gray-300 rounded-sm bg-white">
                   {[1,1,0, 1,0,1, 0,1,1, 1,0,0, 0,1,0, 1,1,0, 0,0,1, 1,0,1, 0,1,0].map((v, i) => (
                     <div key={i} className={`rounded-[1px] ${v ? 'bg-black' : 'bg-white'}`} />
@@ -338,15 +339,17 @@ export default function ChatRoom({
           <span className="text-[11px] text-white/45">
             내 역할 · <span className="text-emerald-400 font-bold">{myRole}</span>
           </span>
-          <span className={`font-mono text-2xl font-black tracking-tight ${timeLeft <= 30 ? 'text-red-400' : 'text-white'}`}>
+          {/* ★ 타이머 텍스트 3단계 색상 변환 */}
+          <span className={`font-mono text-2xl font-black tracking-tight transition-colors duration-500 ${timerTextColor} ${timeLeft <= 30 ? 'animate-pulse' : ''}`}>
             {formatTime(timeLeft)}
           </span>
         </div>
 
         {/* Row 3: tension progress bar */}
         <div className="w-full h-1 bg-white/5">
+          {/* ★ 프로그레스 바 3단계 배경색 변환 */}
           <div
-            className={`h-full transition-all duration-1000 ${timeLeft <= 30 ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`}
+            className={`h-full transition-all duration-1000 ${timerBgColor}`}
             style={{ width: `${Math.max(0, (timeLeft / 180) * 100)}%` }}
           />
         </div>

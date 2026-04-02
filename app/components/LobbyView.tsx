@@ -46,7 +46,6 @@ interface LobbyViewProps {
   factionScores: any;
   currentEvent: any;
   myReports: any[];
-  // New dopamine-hook props (with safe defaults so existing page.tsx callers still work)
   onlineCount?: number;
   eventParticipants?: number;
   queueCounts?: { daily?: number; lang?: number; deep?: number; roleplay?: number };
@@ -88,10 +87,12 @@ export default function LobbyView({
   };
 
   return (
-    <div className="w-full flex flex-col justify-start space-y-3 sm:space-y-4 flex-1 max-w-sm mx-auto pb-4 pt-2 relative">
+    // ★ 수정: space-y 제거 및 여백 세밀 조정을 위해 설정 변경
+    <div className="w-full flex flex-col flex-1 max-w-sm mx-auto pb-4 pt-4 relative">
 
       {/* ── Header ─────────────────────────────────────────── */}
-      <div className="flex items-center justify-between mb-1 shrink-0">
+      {/* ★ 수정: mb-1 -> mb-5 sm:mb-6 으로 간격 벌림 */}
+      <div className="flex items-center justify-between mb-5 sm:mb-6 shrink-0">
         <div>
           <h1 className="text-3xl sm:text-4xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-white to-gray-500 drop-shadow-lg">
             WE US.
@@ -112,7 +113,8 @@ export default function LobbyView({
 
       {/* ── Daily Special Event Banner ─────────────────────── */}
       {currentEvent && (
-        <div className={`w-full relative overflow-hidden bg-gradient-to-br ${currentEvent.theme || 'from-[#18104a] to-[#0c0828]'} border border-purple-500/30 rounded-2xl p-4 shadow-[0_0_28px_rgba(139,92,246,0.12)] shrink-0`}>
+        // ★ 수정: mb-6 추가로 2x2 그리드와의 간격 벌림
+        <div className={`w-full relative overflow-hidden bg-gradient-to-br ${currentEvent.theme || 'from-[#18104a] to-[#0c0828]'} border border-purple-500/30 rounded-2xl p-4 shadow-[0_0_28px_rgba(139,92,246,0.12)] shrink-0 mb-6`}>
           {/* Sparkle decoration */}
           <div className="absolute top-3 right-3 text-white/50 text-xl select-none pointer-events-none">✦✦</div>
 
@@ -148,7 +150,8 @@ export default function LobbyView({
       )}
 
       {/* ── 2×2 Category Grid ─────────────────────────────── */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-3.5 shrink-0">
+      {/* ★ 수정: gap-3 -> gap-3.5 sm:gap-4 로 타일 간격 약간 확대 */}
+      <div className="grid grid-cols-2 gap-3.5 sm:gap-4 shrink-0 mb-6">
         {LOBBY_CATEGORIES.map(cat => {
           const badge = getQueueBadge(cat);
           return (
@@ -156,7 +159,8 @@ export default function LobbyView({
               key={cat.id}
               disabled={isConnecting}
               onClick={() => openTopicModal(cat.id)}
-              className={`group bg-black/40 backdrop-blur-md hover:bg-black/60 border border-white/[0.08] border-l-4 ${cat.borderCls} rounded-2xl p-4 flex flex-col items-start text-left transition-all duration-300 h-28 sm:h-32 shadow-lg relative overflow-hidden
+              // ★ 수정: h-28 sm:h-32 -> h-36 sm:h-40 으로 높이 대폭 확장
+              className={`group bg-black/40 backdrop-blur-md hover:bg-black/60 border border-white/[0.08] border-l-4 ${cat.borderCls} rounded-2xl p-4 flex flex-col items-start text-left transition-all duration-300 h-36 sm:h-40 shadow-lg relative overflow-hidden
                 ${clickedTile === cat.id ? 'scale-90 opacity-60' : 'active:scale-95'}
               `}
             >
@@ -166,7 +170,7 @@ export default function LobbyView({
               <span className="text-[13px] sm:text-sm font-bold text-white relative z-10 leading-snug">
                 {cat.title}
               </span>
-              <span className="text-[9px] text-white/40 relative z-10 mb-auto">{cat.shortDesc}</span>
+              <span className="text-[9px] text-white/40 relative z-10 mb-auto mt-1">{cat.shortDesc}</span>
               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full relative z-10 mt-1.5 ${badge.cls}`}>
                 {badge.text}
               </span>
@@ -176,7 +180,8 @@ export default function LobbyView({
       </div>
 
       {/* ── Live Spectate Section ──────────────────────────── */}
-      <div className="shrink-0">
+      {/* ★ 수정: mt-auto 를 주어 남는 빈 공간을 위로 밀어내고 이 영역을 맨 하단으로 고정 */}
+      <div className="shrink-0 mt-auto pb-2">
         <div className="w-full relative overflow-hidden bg-gradient-to-r from-[#1c0800] to-[#2d0e00] border border-orange-800/40 rounded-2xl px-4 py-3.5 flex items-center justify-between shadow-[0_0_20px_rgba(234,88,12,0.08)]">
           <div>
             <div className="flex items-center gap-2 mb-0.5">
