@@ -122,6 +122,14 @@ export default function WeUsApp() {
       if (data.currentEvent) setCurrentEvent(data.currentEvent);
     });
 
+    socketRef.current.on('lobby_stats_update', (data: any) => {
+      setOnlineCount(data.totalOnline);
+      setQueueCounts(data.queueCounts);
+      setLiveRoomCount(data.activeRoomsCount);
+      setSpectatorCount(data.totalSpectators);
+      setEventParticipants(data.eventParticipants);
+    });
+
     socketRef.current.on('receive_my_records', (records) => { setMyReports(records); });
 
     socketRef.current.on('matched', (data) => {

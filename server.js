@@ -973,5 +973,58 @@ setInterval(() => {
   rateLimits.clear(); 
 }, 10 * 60 * 1000);
 
+// ==========================================
+// 로비 실시간 통계 브로드캐스트 (3초 주기)
+// ==========================================
+
+const CATEGORY_TOPICS = {
+  daily:    ['가벼운 스몰토크', '오늘 하루의 하이라이트', '요즘 꽂힌 취미 이야기'],
+  deep:     ['최악의 이불킥 경험', '자본주의 생존기', '100억 받기 VS 무병장수'],
+  roleplay: ['진상손님 방어전', '압박 면접'],
+};
+
+setInterval(() => {
+  // 접속자 수
+  const totalOnline = io.engine.clientsCount;
+
+  // 카테고리별 대기 인원 (lang은 AI 즉시매칭이므로 0 고정)
+  const queueCounts = { daily: 0, lang: 0, deep: 0, roleplay: 0 };
+  for (const [cat, topics] of Object.entries(CATEGORY_TOPICS)) {
+    for (const topic of topics) {
+      const q = waitingQueues[topic];
+      if (q) queueCounts[cat] += q.roleA.length + q.roleB.length + q.random.length;
+    }
+  }
+
+  // 활성 멀티 방 수 및 총 관전자 수
+  let activeRoomsCount = 0;
+  let totalSpectators = 0;
+  for (const roomData of Object.values(activeRooms)) {
+    if (roomData.type === 'multi') {
+      activeRoomsCount++;
+      if (roomData.spectators) totalSpectators += roomData.spectators.size;
+    }
+  }
+
+  // 오늘의 이벤트 참여자 수 (대기중 + 진행중 방)
+  const activeEvent = getCurrentEvent();
+  let eventParticipants = 0;
+  if (activeEvent) {
+    const eq = waitingQueues[activeEvent.topic];
+    if (eq) eventParticipants += eq.roleA.length + eq.roleB.length + eq.random.length;
+    for (const roomData of Object.values(activeRooms)) {
+      if (roomData.topic === activeEvent.topic) eventParticipants += 2;
+    }
+  }
+
+  io.emit('lobby_stats_update', {
+    totalOnline,
+    queueCounts,
+    activeRoomsCount,
+    totalSpectators,
+    eventParticipants,
+  });
+}, 3000);
+
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, '0.0.0.0', () => console.log(`🚀 WE US 서버 구동 완료 (포트: ${PORT})`));
