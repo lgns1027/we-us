@@ -56,7 +56,7 @@ interface LobbyViewProps {
 
 export default function LobbyView({
   selectedCategory: _selectedCategory, setSelectedCategory, selectedTopic: _selectedTopic, setSelectedTopic,
-  isConnecting, handleMatchStart, setStep, factionScores: _factionScores, currentEvent, myReports,
+  isConnecting, handleMatchStart, setStep, factionScores: _factionScores, currentEvent, myReports: _myReports,
   onlineCount = 247,
   eventParticipants = 38,
   queueCounts = { daily: 89, lang: 0, deep: 43, roleplay: 31 },
@@ -109,21 +109,6 @@ export default function LobbyView({
           </span>
         </div>
       </div>
-
-      {/* ── Persona Hook Banner (신규 유저 전용) ──────────────── */}
-      {(!myReports || myReports.length === 0) && (
-        <button
-          onClick={() => openTopicModal('daily')}
-          className="w-full flex items-center gap-3 bg-black/40 backdrop-blur-md border border-white/[0.08] rounded-2xl px-4 py-3.5 shrink-0 hover:bg-white/[0.04] active:scale-95 transition-all duration-200 text-left"
-        >
-          <span className="text-xl shrink-0">🔒</span>
-          <div className="flex-1 min-w-0">
-            <p className="text-[12px] font-bold text-white leading-snug">소통 페르소나를 해금하세요</p>
-            <p className="text-[10px] text-white/50 leading-snug mt-0.5">3분 대화 완료 후 AI가 분석해드려요</p>
-          </div>
-          <span className="text-white/30 text-xl shrink-0 leading-none">›</span>
-        </button>
-      )}
 
       {/* ── Daily Special Event Banner ─────────────────────── */}
       {currentEvent && (

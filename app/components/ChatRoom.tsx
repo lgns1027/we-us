@@ -305,32 +305,86 @@ export default function ChatRoom({
         </div>
       )}
 
-      <div className="bg-white/[0.02] p-3 sm:p-4 flex justify-between items-center border-b border-white/5 shrink-0">
-        <div className="flex flex-col gap-1 min-w-0 pr-2">
-          <div className="flex items-center gap-1.5 sm:gap-2 overflow-hidden">
-            <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-            <span className="font-semibold text-[11px] sm:text-xs text-white/90 truncate">{isSingleMode ? `AI 싱글: ${selectedTopic}` : `${selectedTopic}`}</span>
-            <div className="flex items-center gap-1 shrink-0 ml-1">
-              {!isSingleMode && <button onClick={() => setIsReportModalOpen(true)} className="bg-red-500/10 text-red-400 text-[8px] sm:text-[10px] px-1.5 sm:px-2 py-0.5 rounded-full font-bold border border-red-500/30 shrink-0">🚨 차단</button>}
-              <button onClick={() => showModal('대화방 퇴장', '정말 대화방에서 나가시겠습니까?', 'confirm', () => forceLeaveRoom())} className="bg-white/5 text-white/50 text-[8px] sm:text-[10px] px-1.5 sm:px-2 py-0.5 rounded-full shrink-0">나가기</button>
-            </div>
+      {/* ── Header ─────────────────────────────────────────── */}
+      <div className="bg-[#111] border-b border-white/5 shrink-0">
+        {/* Row 1: topic + action buttons */}
+        <div className="px-3 pt-3 pb-1.5 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <span className="font-semibold text-[11px] sm:text-xs text-white/90 truncate">
+              {isSingleMode ? `AI 싱글: ${selectedTopic}` : selectedTopic}
+            </span>
           </div>
-          <span className="text-[10px] sm:text-[11px] text-emerald-400 font-bold truncate">내 역할: [{myRole}]</span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {!isSingleMode && (
+              <button
+                onClick={() => setIsReportModalOpen(true)}
+                className="bg-red-900/60 border border-red-700/60 text-red-300 text-[10px] font-bold px-2.5 py-1 rounded-lg active:scale-95 transition-transform"
+              >
+                🚨 차단
+              </button>
+            )}
+            <button
+              onClick={() => showModal('대화방 퇴장', '정말 대화방에서 나가시겠습니까?', 'confirm', () => forceLeaveRoom())}
+              className="bg-[#2a2a2a] border border-white/10 text-white/60 text-[10px] font-semibold px-2.5 py-1 rounded-lg active:scale-95 transition-transform"
+            >
+              나가기
+            </button>
+          </div>
         </div>
-        <div className={`px-2 py-1 rounded-full border shrink-0 ${timeLeft < 60 ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-white/5 border-white/10 text-white/80'}`}>
-          <span className="font-mono text-[10px] sm:text-xs font-medium">{formatTime(timeLeft)}</span>
+
+        {/* Row 2: role + timer */}
+        <div className="px-3 pb-2 flex items-center justify-between">
+          <span className="text-[11px] text-white/45">
+            내 역할 · <span className="text-emerald-400 font-bold">{myRole}</span>
+          </span>
+          <span className={`font-mono text-2xl font-black tracking-tight ${timeLeft <= 30 ? 'text-red-400' : 'text-white'}`}>
+            {formatTime(timeLeft)}
+          </span>
+        </div>
+
+        {/* Row 3: tension progress bar */}
+        <div className="w-full h-1 bg-white/5">
+          <div
+            className={`h-full transition-all duration-1000 ${timeLeft <= 30 ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`}
+            style={{ width: `${Math.max(0, (timeLeft / 180) * 100)}%` }}
+          />
         </div>
       </div>
 
       <div className="flex-1 p-3 sm:p-4 overflow-y-auto space-y-3 sm:space-y-4 flex flex-col [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-        {messages.map((msg: any, idx: number) => (
-          <div key={idx} className={`flex ${msg.sender === myRole || msg.sender === '나' ? 'justify-end' : msg.sender === 'System' ? 'justify-center' : 'justify-start'}`}>
-            <div className={`max-w-[85%] p-3 sm:p-3.5 rounded-2xl text-[12px] sm:text-[13px] leading-relaxed break-words ${msg.sender === myRole || msg.sender === '나' ? 'bg-white text-black rounded-tr-sm' : msg.sender === 'System' ? 'bg-emerald-900/20 text-emerald-100 border border-emerald-500/30 w-full mx-auto text-center font-medium shadow-lg text-[10px] sm:text-[11px]' : 'bg-white/10 text-white rounded-tl-sm'}`}>
-              {msg.sender !== 'System' && <span className={`text-[9px] sm:text-[10px] block mb-1 font-bold ${msg.sender === myRole || msg.sender === '나' ? 'text-gray-500' : 'text-white/40'}`}>{msg.sender}</span>}
-              <span className="whitespace-pre-line">{msg.text}</span>
+        {messages.map((msg: any, idx: number) => {
+          const isMine = msg.sender === myRole || msg.sender === '나';
+          const isMission = msg.sender === 'System' && msg.text.includes('미션');
+          const isSystem = msg.sender === 'System';
+
+          if (isMission) {
+            return (
+              <div key={idx} className="w-full">
+                <div className="w-full bg-emerald-950/60 border border-emerald-500/25 rounded-2xl p-4 shadow-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[10px] font-black text-emerald-400 tracking-widest uppercase">🎯 미션 하달</span>
+                  </div>
+                  <p className="text-emerald-100 text-[12px] sm:text-[13px] leading-relaxed whitespace-pre-line">
+                    {msg.text.replace(/^🎯\s*미션\s*하달[\s\n:·]*/i, '')}
+                  </p>
+                  <div className="mt-2.5 pt-2 border-t border-emerald-500/15">
+                    <span className="text-[10px] text-emerald-400/70">내 역할: <span className="font-bold text-emerald-300">{myRole}</span></span>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div key={idx} className={`flex ${isMine ? 'justify-end' : isSystem ? 'justify-center' : 'justify-start'}`}>
+              <div className={`max-w-[85%] p-3 sm:p-3.5 rounded-2xl text-[12px] sm:text-[13px] leading-relaxed break-words ${isMine ? 'bg-white text-black rounded-tr-sm' : isSystem ? 'bg-white/5 text-white/50 border border-white/10 w-full mx-auto text-center font-medium text-[10px] sm:text-[11px]' : 'bg-white/10 text-white rounded-tl-sm'}`}>
+                {!isSystem && <span className={`text-[9px] sm:text-[10px] block mb-1 font-bold ${isMine ? 'text-gray-500' : 'text-white/40'}`}>{msg.sender}</span>}
+                <span className="whitespace-pre-line">{msg.text}</span>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         {isTyping && (
           <div className="flex justify-start animate-fade-in-up">
             <div className="max-w-[80%] p-2 sm:p-3 rounded-2xl bg-white/5 border border-white/10 text-white/50 rounded-tl-sm flex items-center gap-1">
@@ -365,13 +419,13 @@ export default function ChatRoom({
         </div>
       )}
 
-      <form onSubmit={sendMessage} className="p-2 sm:p-3 bg-[#050505] border-t border-white/5 flex gap-2 z-30 relative shrink-0">
-        <button type="button" onClick={requestCyrano} disabled={isCyranoLoading || isAnalyzing || !!reportData} className="bg-purple-900/30 border border-purple-500/30 text-purple-300 w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs sm:text-sm shrink-0 transition-colors hover:bg-purple-900/50">
+      <form onSubmit={sendMessage} className="p-2 sm:p-3 bg-[#050505] border-t border-white/5 flex gap-2 z-30 relative shrink-0 items-center">
+        <button type="button" onClick={requestCyrano} disabled={isCyranoLoading || isAnalyzing || !!reportData} className="bg-[#3b0764] border border-purple-600/50 text-purple-300 w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs sm:text-sm shrink-0 transition-colors hover:bg-[#4c0a80] active:scale-95">
           {isCyranoLoading ? '⏳' : '💡'}
         </button>
-        
-        <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} disabled={isAnalyzing || !!reportData || showAd} placeholder="메시지 입력..." className="flex-1 bg-white/5 text-white px-3 sm:px-4 py-2.5 sm:py-3 rounded-full outline-none text-xs sm:text-sm"/>
-        <button type="submit" disabled={isAnalyzing || !!reportData || showAd || !inputText.trim()} className="bg-white text-black w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-bold disabled:opacity-50 text-sm shrink-0">↑</button>
+
+        <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} disabled={isAnalyzing || !!reportData || showAd} placeholder="메시지 입력..." className="flex-1 bg-[#1e1e1e] border border-white/10 text-white px-4 py-2.5 sm:py-3 rounded-full outline-none text-xs sm:text-sm placeholder:text-white/30"/>
+        <button type="submit" disabled={isAnalyzing || !!reportData || showAd || !inputText.trim()} className="bg-emerald-500 hover:bg-emerald-400 text-black w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-black disabled:opacity-40 text-base shrink-0 transition-colors active:scale-95">↑</button>
       </form>
     </div>
   );
