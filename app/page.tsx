@@ -28,7 +28,9 @@ const ROLE_MISSIONS: Record<string, Record<string, string>> = {
 export default function WeUsApp() {
   const [activeTab, setActiveTab] = useState<'lobby' | 'myRecord' | 'profile'>('lobby');
   const [userId, setUserId] = useState<string>('');
-  const [myReports, setMyReports] = useState<any[]>([]); 
+  const [myReports, setMyReports] = useState<any[]>([]);
+  const [totalChats, setTotalChats] = useState(0);
+  const [totalChatTime, setTotalChatTime] = useState(0); // minutes
 
   const [step, setStep] = useState<'lobby' | 'role_select' | 'waiting' | 'chat' | 'spectator_list' | 'spectator_room'>('lobby');
   const [spectatorRoomId, setSpectatorRoomId] = useState<string | null>(null); 
@@ -130,7 +132,16 @@ export default function WeUsApp() {
       setEventParticipants(data.eventParticipants);
     });
 
-    socketRef.current.on('receive_my_records', (records) => { setMyReports(records); });
+    socketRef.current.on('receive_my_records', (data) => {
+      if (Array.isArray(data)) {
+        // legacy shape
+        setMyReports(data);
+      } else {
+        setMyReports(data.records || []);
+        setTotalChats(data.totalChats || 0);
+        setTotalChatTime(data.totalChatTime || 0);
+      }
+    });
 
     socketRef.current.on('matched', (data) => {
       setIsConnecting(false); setRoom(data.roomName || data.roomId);
@@ -300,7 +311,6 @@ export default function WeUsApp() {
 
   const formatTime = (seconds: number) => `${Math.floor(seconds / 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`;
 
-  const totalPlayHours = (myReports.length * 3 / 60).toFixed(1);
   let avgLogic = 0, avgLinguistics = 0, avgEmpathy = 0;
   if (myReports.length > 0) {
     let sumL = 0, sumLin = 0, sumE = 0, vc = 0;
@@ -358,7 +368,7 @@ export default function WeUsApp() {
           />
         )}
         {step === 'lobby' && activeTab === 'myRecord' && (
-          <RecordView userId={userId} myReports={myReports} totalPlayHours={totalPlayHours} personaTitle={pTitle} personaDesc={pDesc} tier={tier} avgLogic={avgLogic} avgLinguistics={avgLinguistics} avgEmpathy={avgEmpathy} />
+          <RecordView userId={userId} myReports={myReports} totalChats={totalChats} totalChatTime={totalChatTime} personaTitle={pTitle} personaDesc={pDesc} tier={tier} avgLogic={avgLogic} avgLinguistics={avgLinguistics} avgEmpathy={avgEmpathy} setActiveTab={setActiveTab} />
         )}
         {step === 'lobby' && activeTab === 'profile' && (
           <ProfileView userId={userId} tier={tier} personaTitle={pTitle} socketRef={socketRef} />

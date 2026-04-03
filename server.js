@@ -26,9 +26,11 @@ mongoose.connect(process.env.MONGODB_URI)
 const UserSchema = new mongoose.Schema({
   userId: { type: String, unique: true },
   nickname: { type: String, default: '익명의 소통러' },
-  friends: [{ type: String }], 
-  pushToken: { type: String, default: '' }, 
-  blockedUsers: [{ type: String }], 
+  friends: [{ type: String }],
+  pushToken: { type: String, default: '' },
+  blockedUsers: [{ type: String }],
+  totalChats: { type: Number, default: 0 },
+  totalChatTime: { type: Number, default: 0 }, // in minutes
   createdAt: { type: Date, default: Date.now }
 });
 const User = mongoose.model('User', UserSchema);
@@ -625,10 +627,15 @@ io.on('connection', (socket) => {
     try {
       const uid = extractId(data);
       if (!uid) return;
-      const myRecords = await Report.find({ userIds: uid })
-                                    .sort({ createdAt: -1 })
-                                    .limit(20);
-      socket.emit('receive_my_records', myRecords);
+      const [myRecords, userDoc] = await Promise.all([
+        Report.find({ userIds: uid }).sort({ createdAt: -1 }).limit(20),
+        User.findOne({ userId: uid }, 'totalChats totalChatTime')
+      ]);
+      socket.emit('receive_my_records', {
+        records: myRecords,
+        totalChats: userDoc?.totalChats || 0,
+        totalChatTime: userDoc?.totalChatTime || 0
+      });
     } catch (err) {}
   });
 
@@ -932,6 +939,17 @@ setInterval(() => {
             aiReport: cleanReportText,
             stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore }
           });
+
+          // Increment per-user cumulative stats
+          const chatDurationMinutes = 3; // base chat duration
+          const userIds = Array.from(roomData.userIds).filter(id => id && typeof id === 'string' && !id.startsWith('AI_'));
+          for (const uid of userIds) {
+            await User.updateOne(
+              { userId: uid },
+              { $inc: { totalChats: 1, totalChatTime: chatDurationMinutes } },
+              { upsert: false }
+            );
+          }
         } catch (dbError) {
           console.error(`❌ [DB 저장 오류] ${room}:`, dbError.message);
         }

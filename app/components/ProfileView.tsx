@@ -2,12 +2,14 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 
+const PERSONA_ICONS = ['🧠', '⚖️', '✨', '🕊️', '👑', '🌱'];
+
 export default function ProfileView({ userId, tier, personaTitle, socketRef }: any) {
-  const [nickname, setNickname] = useState('익명의 소통러'); 
+  const [nickname, setNickname] = useState('익명의 소통러');
   const [isEditing, setIsEditing] = useState(false);
   const [editInput, setEditInput] = useState('');
   const [friendsList, setFriendsList] = useState<any[]>([]);
-  
+
   const [activeChatFriend, setActiveChatFriend] = useState<{ userId: string, nickname: string } | null>(null);
   const [dmMessages, setDmMessages] = useState<any[]>([]);
   const [dmInput, setDmInput] = useState('');
@@ -15,15 +17,13 @@ export default function ProfileView({ userId, tier, personaTitle, socketRef }: a
 
   useEffect(() => {
     const cachedNickname = localStorage.getItem('weus_nickname');
-    if (cachedNickname) {
-      setNickname(cachedNickname);
-    }
+    if (cachedNickname) setNickname(cachedNickname);
   }, []);
 
   useEffect(() => {
     if (socketRef.current && userId) {
       socketRef.current.emit('get_profile', userId);
-      
+
       socketRef.current.on('receive_profile', (data: any) => {
         if (data.nickname) {
           setNickname(data.nickname);
@@ -42,8 +42,8 @@ export default function ProfileView({ userId, tier, personaTitle, socketRef }: a
         }
       });
     }
-    return () => { 
-      socketRef.current?.off('receive_profile'); 
+    return () => {
+      socketRef.current?.off('receive_profile');
       socketRef.current?.off('receive_dms');
       socketRef.current?.off('new_dm_arrived');
     };
@@ -52,16 +52,17 @@ export default function ProfileView({ userId, tier, personaTitle, socketRef }: a
   useEffect(() => { dmEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [dmMessages]);
 
   const handleSaveNickname = () => {
-    if (editInput.trim() === '') return alert("닉네임을 한 글자 이상 입력해주세요.");
-    
-    setNickname(editInput); 
+    if (editInput.trim() === '') return alert('닉네임을 한 글자 이상 입력해주세요.');
+    setNickname(editInput);
     localStorage.setItem('weus_nickname', editInput);
-    
     socketRef.current?.emit('update_nickname', { userId, nickname: editInput });
     setIsEditing(false);
   };
 
-  const openDmRoom = (friend: any) => { setActiveChatFriend(friend); socketRef.current?.emit('get_dms', { userId, friendId: friend.userId }); };
+  const openDmRoom = (friend: any) => {
+    setActiveChatFriend(friend);
+    socketRef.current?.emit('get_dms', { userId, friendId: friend.userId });
+  };
 
   const sendDm = (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,100 +72,154 @@ export default function ProfileView({ userId, tier, personaTitle, socketRef }: a
   };
 
   const safeFriendsList = Array.isArray(friendsList) ? friendsList : [];
+  const hasPersona = personaTitle && personaTitle !== '데이터 수집 중';
+
+  // DM view
+  if (activeChatFriend) {
+    return (
+      <div className="w-full flex flex-col h-full bg-[#050505]">
+        <div className="p-3 border-b border-[#1a1a1a] flex items-center gap-3 shrink-0 bg-[#0a0a0a]">
+          <button onClick={() => setActiveChatFriend(null)} className="text-[#555] hover:text-[#f0f0f0] text-xl font-light px-1">←</button>
+          <div className="w-9 h-9 rounded-full bg-[#1a1a1a] border border-[#333] flex items-center justify-center text-base">👤</div>
+          <div>
+            <p className="text-sm font-bold text-[#f0f0f0]">{activeChatFriend.nickname}</p>
+            <p className="text-[10px] text-[#4ade80]">WE US 인맥</p>
+          </div>
+        </div>
+
+        <div className="flex-1 p-4 overflow-y-auto space-y-3 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+          {dmMessages.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-center opacity-40">
+              <span className="text-3xl mb-2">👋</span>
+              <span className="text-xs text-[#888]">{activeChatFriend.nickname}님과 첫 대화를 시작해 보세요.</span>
+            </div>
+          ) : (
+            dmMessages.map((msg, idx) => {
+              const isMe = msg.senderId === userId;
+              return (
+                <div key={idx} className={`flex w-full ${isMe ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[75%] px-4 py-3 text-[13px] leading-relaxed break-words ${
+                    isMe
+                      ? 'bg-[#3b82f6] text-white rounded-2xl rounded-tr-sm'
+                      : 'bg-[#1f2937] text-white/90 border border-white/5 rounded-2xl rounded-tl-sm'
+                  }`}>
+                    {msg.text}
+                  </div>
+                </div>
+              );
+            })
+          )}
+          <div ref={dmEndRef} />
+        </div>
+
+        <form onSubmit={sendDm} className="p-3 border-t border-[#1a1a1a] bg-[#0a0a0a] flex gap-2 shrink-0 items-center">
+          <input
+            type="text" value={dmInput} onChange={(e) => setDmInput(e.target.value)}
+            placeholder="메시지 입력..."
+            className="flex-1 bg-[#1a1a1a] text-[#f0f0f0] px-4 py-3 rounded-full outline-none text-[13px] border border-[#333] focus:border-[#4ade80]/50 transition-colors"
+          />
+          <button type="submit" disabled={!dmInput.trim()}
+            className="bg-[#3b82f6] text-white w-10 h-10 rounded-full flex items-center justify-center font-black disabled:opacity-40 disabled:bg-[#1a1a1a] shrink-0">
+            →
+          </button>
+        </form>
+      </div>
+    );
+  }
 
   return (
-    <div className="w-full flex-1 flex flex-col bg-[#080808]/90 backdrop-blur-2xl border border-white/5 rounded-[2rem] shadow-2xl relative mb-2 overflow-hidden">
-      
-      {activeChatFriend ? (
-        <div className="absolute inset-0 z-50 flex flex-col bg-[#050505]">
-          <div className="p-3 sm:p-4 border-b border-white/10 flex items-center justify-between shrink-0 bg-[#0a0a0a]">
-            <div className="flex items-center gap-3">
-              <button onClick={() => setActiveChatFriend(null)} className="text-white/60 hover:text-white px-2 py-1 text-xl font-light">←</button>
-              <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-blue-500/20 to-purple-500/20 flex items-center justify-center text-lg border border-white/10">👤</div>
-              <div className="flex flex-col">
-                <span className="text-sm font-bold text-white tracking-wide">{activeChatFriend.nickname}</span>
-                <span className="text-[10px] text-emerald-400 font-medium">WE US 인맥</span>
-              </div>
-            </div>
+    <div className="w-full flex flex-col pb-4">
+      {/* Profile header */}
+      <div className="text-center pb-4 border-b border-[#1a1a1a] mb-4">
+        <div className="relative w-[72px] h-[72px] mx-auto mb-3">
+          <div className="w-[72px] h-[72px] rounded-full bg-[#1a1a1a] border-2 border-[#333] flex items-center justify-center text-[30px]">
+            🎭
           </div>
-
-          <div className="flex-1 p-4 overflow-y-auto space-y-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-            {dmMessages.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center opacity-30 text-center">
-                <span className="text-3xl mb-3">👋</span>
-                <span className="text-xs tracking-widest text-white/80">{activeChatFriend.nickname}님과 첫 대화를 시작해 보세요.</span>
-              </div>
-            ) : (
-              dmMessages.map((msg, idx) => {
-                const isMe = msg.senderId === userId;
-                return (
-                  <div key={idx} className={`flex w-full ${isMe ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[75%] px-4 py-3 text-[13px] leading-relaxed break-words shadow-sm ${
-                      isMe 
-                        ? 'bg-[#3b82f6] text-white rounded-2xl rounded-tr-sm' 
-                        : 'bg-[#1f2937] text-white/90 border border-white/5 rounded-2xl rounded-tl-sm' 
-                    }`}>
-                      {msg.text}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-            <div ref={dmEndRef} />
-          </div>
-
-          <form onSubmit={sendDm} className="p-3 border-t border-white/5 bg-[#0a0a0a] flex gap-2 shrink-0 items-center">
-            <input type="text" value={dmInput} onChange={(e) => setDmInput(e.target.value)} placeholder="메시지 입력..." className="flex-1 bg-white/5 text-white px-5 py-3.5 rounded-full outline-none text-[13px] focus:bg-white/10 transition-colors" />
-            <button type="submit" disabled={!dmInput.trim()} className="bg-blue-500 text-white w-10 h-10 rounded-full flex items-center justify-center font-black disabled:opacity-50 disabled:bg-white/10">→</button>
-          </form>
-        </div>
-      ) : (
-        <div className="flex flex-col h-full p-4 sm:p-6 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-          <div className="flex flex-col items-center justify-center space-y-3 pb-4 sm:pb-6 border-b border-white/10 shrink-0 mt-2">
-            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-gradient-to-tr from-emerald-500/20 to-blue-500/20 border border-white/20 flex items-center justify-center text-2xl sm:text-3xl shadow-[0_0_30px_rgba(16,185,129,0.15)]">🎭</div>
-            <div className="text-center w-full px-2">
-              {isEditing ? (
-                <div className="flex items-center justify-center gap-2 mt-2">
-                  <input type="text" value={editInput} onChange={(e) => setEditInput(e.target.value)} maxLength={10} placeholder="닉네임 입력" className="bg-black border border-emerald-500/50 text-white text-center rounded-lg px-2 sm:px-3 py-1.5 w-24 sm:w-32 outline-none focus:border-emerald-400 text-xs sm:text-sm" autoFocus />
-                  <button onClick={handleSaveNickname} className="bg-emerald-500 text-black px-2 sm:px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-bold hover:bg-emerald-400">저장</button>
-                </div>
-              ) : (
-                <div className="flex items-center justify-center gap-2 mt-2">
-                  <h2 className="text-xl sm:text-2xl font-black tracking-wider text-white truncate max-w-[150px] sm:max-w-[200px]">{nickname}</h2>
-                  <button onClick={() => { setEditInput(nickname === '익명의 소통러' ? '' : nickname); setIsEditing(true); }} className="text-white/40 hover:text-white/80 text-sm">✏️</button>
-                </div>
-              )}
-              <p className="text-emerald-400 text-[10px] sm:text-xs mt-2 font-medium tracking-widest">{personaTitle} <span className="text-white/50">({tier})</span></p>
-              <p className="text-[8px] sm:text-[9px] text-white/20 mt-1 font-mono">{userId}</p>
-            </div>
-          </div>
-
-          <div className="flex-1 flex flex-col mt-4 sm:mt-6 overflow-hidden">
-            <div className="flex justify-between items-center mb-3 shrink-0 px-1 sm:px-2">
-              <div className="flex items-center gap-2"><span className="text-xs sm:text-sm">🤝</span><span className="text-white/80 text-[10px] sm:text-xs font-bold tracking-widest uppercase">인사이트 인맥</span></div>
-              <span className="text-[9px] sm:text-[10px] bg-white/10 text-white/60 px-2 py-0.5 rounded-full">{safeFriendsList.length}명</span>
-            </div>
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1 sm:pr-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-              {safeFriendsList.length === 0 ? (
-                <div className="h-full min-h-[100px] flex flex-col items-center justify-center text-center opacity-50"><span className="text-2xl sm:text-3xl mb-2 sm:mb-3">📭</span><p className="text-[9px] sm:text-[11px] text-white/70 leading-relaxed">아직 등록된 인맥이 없습니다.</p></div>
-              ) : (
-                safeFriendsList.map((friend, idx) => (
-                  <div key={idx} onClick={() => openDmRoom(friend)} className="bg-black/40 border border-white/5 rounded-2xl p-3 sm:p-4 flex items-center justify-between hover:bg-white/5 transition-colors cursor-pointer group shadow-sm">
-                    <div className="flex items-center gap-3 sm:gap-4 overflow-hidden">
-                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-gray-800 to-black border border-white/10 flex items-center justify-center text-lg sm:text-xl shrink-0">👤</div>
-                      <div className="flex flex-col text-left overflow-hidden">
-                        <span className="text-[13px] sm:text-[15px] font-bold text-white/90 group-hover:text-emerald-300 truncate">{friend.nickname}</span>
-                        <span className="text-[9px] sm:text-[10px] text-white/30 font-mono truncate w-24 sm:w-36 mt-0.5">{friend.userId}</span>
-                      </div>
-                    </div>
-                    <div className="text-white/30 group-hover:text-emerald-400 transition-colors text-lg">→</div>
-                  </div>
-                ))
-              )}
-            </div>
+          <div className="absolute bottom-[-2px] right-[-2px] bg-[#161616] border border-[#333] rounded-lg px-1.5 py-0.5 text-[9px] text-[#555]">
+            ?
           </div>
         </div>
-      )}
+
+        {isEditing ? (
+          <div className="flex items-center justify-center gap-2 mb-1">
+            <input
+              type="text" value={editInput} onChange={(e) => setEditInput(e.target.value)}
+              maxLength={10} placeholder="닉네임 입력" autoFocus
+              className="bg-[#0c0c0c] border border-[#4ade80]/50 text-white text-center rounded-lg px-3 py-1.5 w-32 outline-none text-sm focus:border-[#4ade80]"
+            />
+            <button onClick={handleSaveNickname} className="bg-[#4ade80] text-black px-3 py-1.5 rounded-lg text-xs font-bold">저장</button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center gap-2 mb-1">
+            <h2 className="text-lg font-black text-[#f0f0f0]">{nickname}</h2>
+            <button onClick={() => { setEditInput(nickname === '익명의 소통러' ? '' : nickname); setIsEditing(true); }} className="text-[#555] hover:text-[#f0f0f0] text-sm transition-colors">✏️</button>
+          </div>
+        )}
+
+        <div className="flex items-center justify-center gap-1.5 mb-1.5">
+          <span className="text-[10px] font-semibold text-[#4ade80]">{tier}</span>
+          <span className="text-[10px] text-[#333]">·</span>
+          <span className="text-[10px] text-[#555]">{hasPersona ? personaTitle : '데이터 수집 중'}</span>
+        </div>
+        <p className="text-[9px] text-[#333] font-mono overflow-hidden text-ellipsis whitespace-nowrap max-w-[200px] mx-auto">{userId}</p>
+      </div>
+
+      {/* Friends section */}
+      <div className="mb-4">
+        <div className="flex justify-between items-center mb-3">
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm">🤝</span>
+            <span className="text-xs font-semibold text-[#ddd]">인사이트 인맥</span>
+          </div>
+          <span className="text-[10px] text-[#555] bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg px-2 py-0.5">{safeFriendsList.length}명</span>
+        </div>
+
+        {safeFriendsList.length === 0 ? (
+          <div className="bg-[#161616] border border-dashed border-[#2a2a2a] rounded-xl p-4 text-center">
+            <p className="text-lg mb-1.5">👥</p>
+            <p className="text-[11px] text-[#555] leading-relaxed">대화 후 상대방을 친구로 추가하면<br />여기에 표시돼요</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {safeFriendsList.map((friend, idx) => (
+              <div key={idx} onClick={() => openDmRoom(friend)}
+                className="bg-[#161616] border border-[#222] rounded-xl p-3 flex items-center justify-between cursor-pointer hover:border-[#333] transition-colors">
+                <div className="flex items-center gap-3 overflow-hidden">
+                  <div className="w-9 h-9 rounded-full bg-[#1a1a1a] border border-[#333] flex items-center justify-center text-sm shrink-0">👤</div>
+                  <div className="overflow-hidden">
+                    <p className="text-[13px] font-bold text-[#f0f0f0] truncate">{friend.nickname}</p>
+                    <p className="text-[9px] text-[#444] font-mono truncate">{friend.userId}</p>
+                  </div>
+                </div>
+                <span className="text-[#444] text-sm shrink-0">→</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Persona section */}
+      <div>
+        <p className="text-[11px] font-semibold text-[#555] mb-2">나의 소통 퍼르소나</p>
+        {hasPersona ? (
+          <div className="bg-[#161616] border border-[#222] rounded-xl p-3 text-center">
+            <p className="text-2xl mb-1">{personaTitle.split(' ')[0]}</p>
+            <p className="text-sm font-bold text-[#f0f0f0]">{personaTitle.split(' ').slice(1).join(' ')}</p>
+          </div>
+        ) : (
+          <div className="bg-[#0f0f0f] border border-[#222] rounded-[14px] p-4 flex flex-col items-center text-center gap-2">
+            <div className="flex gap-1.5 mb-0.5">
+              {PERSONA_ICONS.map((icon, i) => (
+                <span key={i} className="text-base opacity-20">{icon}</span>
+              ))}
+            </div>
+            <p className="text-[11px] text-[#555] leading-relaxed">첫 대화 완료 후<br />6가지 퍼르소나 중 하나가 해금돼요</p>
+            <div className="bg-[#1a1a1a] border border-[#333] rounded-lg px-4 py-1.5 mt-0.5">
+              <span className="text-[10px] font-semibold text-[#888]">🔒 해금 조건: 대화 1회 완료</span>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
