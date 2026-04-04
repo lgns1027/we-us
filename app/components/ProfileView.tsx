@@ -200,7 +200,7 @@ export default function ProfileView({ userId, tier, personaTitle, socketRef }: a
 
       {/* Persona section */}
       <div>
-        <p className="text-[11px] font-semibold text-[#555] mb-2">나의 소통 퍼르소나</p>
+        <p className="text-[11px] font-semibold text-[#555] mb-2">나의 소통 페르소나</p>
         {hasPersona ? (
           <div className="bg-[#161616] border border-[#222] rounded-xl p-3 text-center">
             <p className="text-2xl mb-1">{personaTitle.split(' ')[0]}</p>
@@ -213,7 +213,7 @@ export default function ProfileView({ userId, tier, personaTitle, socketRef }: a
                 <span key={i} className="text-base opacity-20">{icon}</span>
               ))}
             </div>
-            <p className="text-[11px] text-[#555] leading-relaxed">첫 대화 완료 후<br />6가지 퍼르소나 중 하나가 해금돼요</p>
+            <p className="text-[11px] text-[#555] leading-relaxed">첫 대화 완료 후<br />6가지 페르소나 중 하나가 해금돼요</p>
             <div className="bg-[#1a1a1a] border border-[#333] rounded-lg px-4 py-1.5 mt-0.5">
               <span className="text-[10px] font-semibold text-[#888]">🔒 해금 조건: 대화 1회 완료</span>
             </div>

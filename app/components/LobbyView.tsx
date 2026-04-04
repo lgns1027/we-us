@@ -56,11 +56,11 @@ interface LobbyViewProps {
 export default function LobbyView({
   selectedCategory: _selectedCategory, setSelectedCategory, selectedTopic: _selectedTopic, setSelectedTopic,
   isConnecting, handleMatchStart, setStep, factionScores: _factionScores, currentEvent, myReports: _myReports,
-  onlineCount = 247,
-  eventParticipants = 38,
-  queueCounts = { daily: 89, lang: 0, deep: 43, roleplay: 31 },
-  liveRoomCount = 12,
-  spectatorCount = 84,
+  onlineCount = 0,
+  eventParticipants = 0,
+  queueCounts = { daily: 0, lang: 0, deep: 0, roleplay: 0 },
+  liveRoomCount = 0,
+  spectatorCount = 0,
 }: LobbyViewProps) {
 
   const [activeModalCat, setActiveModalCat] = useState<any>(null);
@@ -101,52 +101,48 @@ export default function LobbyView({
         </div>
 
         <div className="flex items-center gap-1.5 bg-black/50 backdrop-blur-md border border-white/10 rounded-full px-3 py-1.5 shadow-sm">
-          <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse shrink-0" />
+          <span className={`w-2 h-2 rounded-full animate-pulse shrink-0 ${onlineCount > 0 ? 'bg-green-400' : 'bg-amber-400'}`} />
           <span className="text-[11px] font-semibold text-white/80 whitespace-nowrap">
-            {onlineCount.toLocaleString()}명 대화중
+            {onlineCount > 0 ? `${onlineCount.toLocaleString()}명 대화중` : '서버 연결 중...'}
           </span>
         </div>
       </div>
 
       {/* ── Daily Special Event Banner ─────────────────────── */}
-      {currentEvent && (
-        // ★ 수정: p-4에서 px-4 py-3 으로 상하 패딩을 줄여 슬림하게 만듦
-        <div className={`w-full relative overflow-hidden bg-gradient-to-br ${currentEvent.theme || 'from-[#18104a] to-[#0c0828]'} border border-purple-500/30 rounded-2xl px-4 py-3 shadow-[0_0_28px_rgba(139,92,246,0.12)] shrink-0 mb-4 sm:mb-5`}>
-          <div className="absolute top-2 right-3 text-white/50 text-xl select-none pointer-events-none">✦✦</div>
+      <div className={`w-full relative overflow-hidden bg-gradient-to-br ${currentEvent?.theme || 'from-[#18104a] to-[#0c0828]'} border border-purple-500/30 rounded-2xl px-4 py-3 shadow-[0_0_28px_rgba(139,92,246,0.12)] shrink-0 mb-4 sm:mb-5`}>
+        <div className="absolute top-2 right-3 text-white/50 text-xl select-none pointer-events-none">✦✦</div>
 
-          <div className="relative z-10">
-            {/* ★ 수정: mb-2를 mb-1로 줄임 */}
-            <p className="text-[10px] font-black text-purple-300/80 tracking-widest mb-1 uppercase">
-              {currentEvent.desc ? currentEvent.desc.split('!')[0] : '오늘의 한정 큐'}
-            </p>
-            <div className="flex items-end justify-between gap-3">
-              <div className="min-w-0">
-                {/* ★ 수정: mb-1을 mb-0.5로 줄임 */}
-                <div className="flex items-center gap-1.5 mb-0.5">
-                  <span className="text-lg sm:text-xl shrink-0">✨</span>
-                  <h2 className="text-[14px] sm:text-[15px] font-extrabold text-white tracking-wide truncate">
-                    {currentEvent.topic}
-                  </h2>
-                </div>
-                <p className="text-[9px] sm:text-[10px] text-white/45">
-                  자정까지 · 지금 {eventParticipants}명 참여중
-                </p>
+        <div className="relative z-10">
+          <p className="text-[10px] font-black text-purple-300/80 tracking-widest mb-1 uppercase">
+            {currentEvent ? (currentEvent.desc ? currentEvent.desc.split('!')[0] : '오늘의 한정 큐') : '오늘의 한정 큐'}
+          </p>
+          <div className="flex items-end justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <span className="text-lg sm:text-xl shrink-0">{currentEvent ? '✨' : '⏳'}</span>
+                <h2 className={`text-[14px] sm:text-[15px] font-extrabold tracking-wide truncate ${currentEvent ? 'text-white' : 'text-white/40 animate-pulse'}`}>
+                  {currentEvent ? currentEvent.topic : '오늘의 한정 큐를 불러오는 중...'}
+                </h2>
               </div>
-              <button
-                onClick={() => {
-                  setSelectedCategory('event');
-                  setSelectedTopic(currentEvent.topic);
-                  setStep('role_select');
-                }}
-                // ★ 수정: 버튼 크기도 슬림하게 조절 (px-3.5 py-2 -> px-3 py-1.5, text-[11px])
-                className="shrink-0 bg-purple-600 hover:bg-purple-500 active:scale-95 text-white text-[11px] font-bold px-3 py-1.5 rounded-xl transition-all duration-200 whitespace-nowrap"
-              >
-                지금 참여 →
-              </button>
+              <p className="text-[9px] sm:text-[10px] text-white/45">
+                {currentEvent ? `자정까지 · 지금 ${eventParticipants}명 참여중` : '\u00a0'}
+              </p>
             </div>
+            <button
+              disabled={!currentEvent}
+              onClick={() => {
+                if (!currentEvent) return;
+                setSelectedCategory('event');
+                setSelectedTopic(currentEvent.topic);
+                setStep('role_select');
+              }}
+              className={`shrink-0 text-[11px] font-bold px-3 py-1.5 rounded-xl transition-all duration-200 whitespace-nowrap ${currentEvent ? 'bg-purple-600 hover:bg-purple-500 active:scale-95 text-white' : 'bg-white/5 text-white/30 cursor-not-allowed'}`}
+            >
+              {currentEvent ? '지금 참여 →' : '로딩중...'}
+            </button>
           </div>
         </div>
-      )}
+      </div>
 
       {/* ── 2×2 Category Grid ─────────────────────────────── */}
       <div className="flex-1 grid grid-cols-2 grid-rows-2 gap-3 sm:gap-4 min-h-[220px] mb-4 sm:mb-5">

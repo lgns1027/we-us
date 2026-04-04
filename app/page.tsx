@@ -66,11 +66,11 @@ export default function WeUsApp() {
   const [currentEvent, setCurrentEvent] = useState<any>(null);
 
   // Live-count props for LobbyView dopamine hooks
-  const [onlineCount, setOnlineCount] = useState(247);
-  const [eventParticipants, setEventParticipants] = useState(38);
-  const [queueCounts, setQueueCounts] = useState({ daily: 89, lang: 0, deep: 43, roleplay: 31 });
-  const [liveRoomCount, setLiveRoomCount] = useState(12);
-  const [spectatorCount, setSpectatorCount] = useState(84);
+  const [onlineCount, setOnlineCount] = useState(0);
+  const [eventParticipants, setEventParticipants] = useState(0);
+  const [queueCounts, setQueueCounts] = useState({ daily: 0, lang: 0, deep: 0, roleplay: 0 });
+  const [liveRoomCount, setLiveRoomCount] = useState(0);
+  const [spectatorCount, setSpectatorCount] = useState(0);
 
   const [sysModal, setSysModal] = useState({ isOpen: false, title: '', desc: '', type: 'alert', onConfirm: () => {} });
   const showModal = (title: string, desc: string, type: 'alert' | 'confirm' = 'alert', onConfirm = () => {}) => {
