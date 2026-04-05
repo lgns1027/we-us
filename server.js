@@ -503,15 +503,18 @@ io.on('connection', (socket) => {
   });
 
   socket.on('join_queue', (data) => {
+    // Spam guard: reject if already queued or has a pending fallback timer
+    if (socket.queueTopic || socket.aiFallbackTimeout) return;
+
     const uid = extractId(data.userId);
     const { topic, role, roleA_name, roleB_name } = data;
     if (!uid) return;
     socket.userId = uid;
-    
+
     if (!waitingQueues[topic]) {
       waitingQueues[topic] = { roleA: [], roleB: [], random: [], roleA_name, roleB_name };
     }
-    
+
     const queueData = { id: socket.id, socket: socket, userId: uid };
 
     if (role === 'A') waitingQueues[topic].roleA.push(queueData);
@@ -525,19 +528,30 @@ io.on('connection', (socket) => {
     tryMatch(topic);
 
     // 10-second AI fallback: if still in queue, auto-match with AI bot
-    const fallbackTimer = setTimeout(() => {
+    socket.aiFallbackTimeout = setTimeout(() => {
+      socket.aiFallbackTimeout = null;
       if (!socket.queueTopic) return; // already matched or left
 
-      // Remove from queue
-      const targetQueue = socket.queueRole === 'A' ? 'roleA' : socket.queueRole === 'B' ? 'roleB' : 'random';
+      // Ghost AI room guard: abort if socket already disconnected
+      if (!socket.connected) return;
+
+      // Remove from all queues (deep cleanup)
+      for (const qKey of ['dailyQueue', 'langQueue', 'deepQueue', 'roleplayQueue']) {
+        const q = waitingQueues[qKey];
+        if (q) {
+          q.roleA = q.roleA.filter(s => s.id !== socket.id);
+          q.roleB = q.roleB.filter(s => s.id !== socket.id);
+          q.random = q.random.filter(s => s.id !== socket.id);
+        }
+      }
       if (waitingQueues[topic]) {
+        const targetQueue = socket.queueRole === 'A' ? 'roleA' : socket.queueRole === 'B' ? 'roleB' : 'random';
         waitingQueues[topic][targetQueue] = waitingQueues[topic][targetQueue].filter(s => s.id !== socket.id);
       }
       socket.queueTopic = null;
       socket.queueRole = null;
 
       // Determine roles
-      const q = waitingQueues[topic] || {};
       const myRoleName = role === 'A' ? (roleA_name || '역할A') : role === 'B' ? (roleB_name || '역할B') : (roleA_name || '익명');
       const aiRoleName = role === 'A' ? (roleB_name || '역할B') : role === 'B' ? (roleA_name || '역할A') : (roleB_name || 'AI 파트너');
 
@@ -572,22 +586,33 @@ io.on('connection', (socket) => {
       console.log(`🤖 [AI 폴백 매칭] ${socket.id} -> ${roomId}`);
     }, 10000);
 
-    // Cancel fallback if matched or left before 10s
-    socket.once('matched_human', () => clearTimeout(fallbackTimer));
-    const originalLeave = socket.listeners('leave_queue')[0];
-    socket.once('leave_queue_cancel_fallback', () => clearTimeout(fallbackTimer));
+    // Cancel fallback if matched with a human before 10s
+    socket.once('matched_human', () => {
+      if (socket.aiFallbackTimeout) {
+        clearTimeout(socket.aiFallbackTimeout);
+        socket.aiFallbackTimeout = null;
+      }
+    });
   });
 
   socket.on('leave_queue', () => {
-    const topic = socket.queueTopic;
-    const role = socket.queueRole;
-    if (topic && waitingQueues[topic]) {
-      const targetQueue = role === 'A' ? 'roleA' : role === 'B' ? 'roleB' : 'random';
-      waitingQueues[topic][targetQueue] = waitingQueues[topic][targetQueue].filter(s => s.id !== socket.id);
-      socket.queueTopic = null;
-      socket.queueRole = null;
+    // Clear zombie AI fallback timer
+    if (socket.aiFallbackTimeout) {
+      clearTimeout(socket.aiFallbackTimeout);
+      socket.aiFallbackTimeout = null;
     }
-    // Cancel AI fallback if user manually leaves queue
+    // Deep cleanup: remove from all queue arrays
+    for (const qKey of Object.keys(waitingQueues)) {
+      const q = waitingQueues[qKey];
+      if (q) {
+        q.roleA = q.roleA.filter(s => s.id !== socket.id);
+        q.roleB = q.roleB.filter(s => s.id !== socket.id);
+        q.random = q.random.filter(s => s.id !== socket.id);
+      }
+    }
+    socket.queueTopic = null;
+    socket.queueRole = null;
+    // Signal human match so any lingering once('matched_human') listeners fire
     socket.emit('matched_human');
   });
 
@@ -896,15 +921,28 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
+    // Clear zombie AI fallback timer
+    if (socket.aiFallbackTimeout) {
+      clearTimeout(socket.aiFallbackTimeout);
+      socket.aiFallbackTimeout = null;
+    }
+
     if (socket.loungeNickname) {
       const count = (io.sockets.adapter.rooms.get('open_lounge')?.size || 1) - 1;
       io.to('open_lounge').emit('lounge_meta', { userCount: Math.max(0, count) });
     }
 
-    if (socket.queueTopic && waitingQueues[socket.queueTopic]) {
-      const targetQueue = socket.queueRole === 'A' ? 'roleA' : socket.queueRole === 'B' ? 'roleB' : 'random';
-      waitingQueues[socket.queueTopic][targetQueue] = waitingQueues[socket.queueTopic][targetQueue].filter(s => s.id !== socket.id);
+    // Deep cleanup: remove from all queue arrays
+    for (const qKey of Object.keys(waitingQueues)) {
+      const q = waitingQueues[qKey];
+      if (q) {
+        q.roleA = q.roleA.filter(s => s.id !== socket.id);
+        q.roleB = q.roleB.filter(s => s.id !== socket.id);
+        q.random = q.random.filter(s => s.id !== socket.id);
+      }
     }
+    socket.queueTopic = null;
+    socket.queueRole = null;
 
     if (socket.spectatingRoom && activeRooms[socket.spectatingRoom]) {
       const roomData = activeRooms[socket.spectatingRoom];
