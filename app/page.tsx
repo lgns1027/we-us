@@ -80,6 +80,7 @@ export default function WeUsApp() {
   const socketRef = useRef<Socket | null>(null);
   const lastInteractionTime = useRef<number>(Date.now());
   const messagesRef = useRef(messages);
+  const analyzingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateRefs = useRef({ selectedTopic, isAnalyzing, reportData, showAd, currentEvent });
 
   useEffect(() => { stateRefs.current = { selectedTopic, isAnalyzing, reportData, showAd, currentEvent }; }, [selectedTopic, isAnalyzing, reportData, showAd, currentEvent]);
@@ -199,16 +200,20 @@ export default function WeUsApp() {
     });
 
     socketRef.current.on('receive_report', (data) => {
+      if (analyzingTimeoutRef.current) {
+        clearTimeout(analyzingTimeoutRef.current);
+        analyzingTimeoutRef.current = null;
+      }
       setIsAnalyzing(false);
       if (data.error) {
         showModal("분석 실패", "대화 내용이 너무 짧아 리포트를 발급할 수 없습니다.", "alert", () => {
-          forceLeaveRoom(); 
+          forceLeaveRoom();
         });
-      } else { 
-        setReportData(data.reportText); 
+      } else {
+        setReportData(data.reportText);
         setReportStats(data.stats);
-        setPartnerId(data.partnerId); 
-        if (userId) socketRef.current?.emit('request_my_records', userId); 
+        setPartnerId(data.partnerId);
+        if (userId) socketRef.current?.emit('request_my_records', userId);
       }
     });
 
@@ -240,8 +245,13 @@ export default function WeUsApp() {
     const timer = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
-          clearInterval(timer); 
-          setIsAnalyzing(true); 
+          clearInterval(timer);
+          setIsAnalyzing(true);
+          if (analyzingTimeoutRef.current) clearTimeout(analyzingTimeoutRef.current);
+          analyzingTimeoutRef.current = setTimeout(() => {
+            setIsAnalyzing(false);
+            showModal('분석 시간 초과', 'AI 분석에 실패했습니다. 로비로 돌아갑니다.', 'alert', () => forceLeaveRoom());
+          }, 30000);
           setTimeout(() => {
             if (typeof window !== 'undefined' && (window as any).ReactNativeWebView) {
               (window as any).ReactNativeWebView.postMessage('SHOW_ADMOB_AD');

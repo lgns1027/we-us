@@ -177,26 +177,36 @@ async function getGoogleAIResponse(systemPrompt, history, maxTokens = 300) {
     if (index === 0 && msg.role !== 'assistant') {
       text = `[시스템 지시사항: ${systemPrompt}]\n\n사용자 메시지: ` + text;
     }
-    return { 
-      role: msg.role === 'assistant' ? 'model' : 'user', 
-      parts: [{ text: text }] 
+    return {
+      role: msg.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: text }]
     };
   });
 
+  const MODEL_TIMEOUT_MS = 15000;
+
   for (const modelName of modelsToTry) {
     try {
-      const model = genAI.getGenerativeModel({ 
-        model: modelName, 
-        generationConfig: { maxOutputTokens: maxTokens } 
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+        generationConfig: { maxOutputTokens: maxTokens }
       });
-      const result = await model.generateContent({ contents });
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Timeout: ${modelName}`)), MODEL_TIMEOUT_MS)
+      );
+
+      const result = await Promise.race([
+        model.generateContent({ contents }),
+        timeoutPromise
+      ]);
+
       const responseText = result.response.text();
-      
       if (responseText && responseText.trim()) {
         return responseText.trim();
       }
-    } catch (error) { 
-      console.error(`🚨 [AI 오류] ${modelName} 통신 실패:`, error.message); 
+    } catch (error) {
+      console.error(`🚨 [AI 오류] ${modelName} 통신 실패:`, error.message);
     }
   }
   return "네트워크가 불안정하여 AI가 답변을 고민하고 있습니다.";
@@ -386,13 +396,18 @@ io.on('connection', (socket) => {
   socket.on('add_friend', async (data) => {
     try {
       const uid = extractId(data.userId);
-      if (!uid || !data.friendId) return;
-      const user = await User.findOne({ userId: uid });
-      if (user && !user.friends.includes(data.friendId)) {
-        user.friends.push(data.friendId);
-        await user.save();
-      }
-      
+      const friendId = data.friendId;
+      if (!uid || !friendId) return;
+      if (uid === friendId) return;
+
+      const friendExists = await User.findOne({ userId: friendId });
+      if (!friendExists) return;
+
+      await User.updateOne(
+        { userId: uid },
+        { $addToSet: { friends: friendId } }
+      );
+
       const updatedUser = await User.findOne({ userId: uid });
       const friendsData = await User.find({ userId: { $in: updatedUser.friends } }).select('userId nickname');
       socket.emit('receive_profile', { nickname: updatedUser.nickname, friends: friendsData });
@@ -486,6 +501,7 @@ io.on('connection', (socket) => {
     const uid = extractId(data.userId);
     const { topic, role, roleA_name, roleB_name } = data;
     if (!uid) return;
+    socket.userId = uid;
     
     if (!waitingQueues[topic]) {
       waitingQueues[topic] = { roleA: [], roleB: [], random: [], roleA_name, roleB_name };
@@ -518,6 +534,7 @@ io.on('connection', (socket) => {
   socket.on('start_ai_chat', (data) => {
     const uid = extractId(data.userId);
     const { topic, myRole, aiRole } = data;
+    socket.userId = uid;
     const roomId = `ai_${socket.id}_${Date.now()}`;
     socket.join(roomId);
     
@@ -667,12 +684,14 @@ io.on('connection', (socket) => {
 
     if (roomData.type === 'multi') {
       socket.to(room).emit('receive_message', { sender: 'System', text: `${socket.userAlias} 님이 퇴장하셨습니다.` });
-      
+
       roomData.participants -= 1;
       if (roomData.participants < 2) {
-         socket.to(room).emit('partner_left');
-         delete activeRooms[room];
-         if (roomVotes[room]) delete roomVotes[room];
+        socket.to(room).emit('partner_left');
+        if (!roomData.isGeneratingReport && Date.now() < roomData.endTime) {
+          delete activeRooms[room];
+          if (roomVotes[room]) delete roomVotes[room];
+        }
       }
     } else {
       delete activeRooms[room];
@@ -941,24 +960,43 @@ setInterval(() => {
           });
 
           // Increment per-user cumulative stats
-          const chatDurationMinutes = 3; // base chat duration
+          const chatDurationMinutes = Math.max(1, Math.round((Date.now() - (roomData.endTime - 180000)) / 60000));
           const userIds = Array.from(roomData.userIds).filter(id => id && typeof id === 'string' && !id.startsWith('AI_'));
-          for (const uid of userIds) {
-            await User.updateOne(
-              { userId: uid },
-              { $inc: { totalChats: 1, totalChatTime: chatDurationMinutes } },
-              { upsert: false }
-            );
-          }
+          await Promise.all(
+            userIds.map(uid =>
+              User.updateOne(
+                { userId: uid },
+                { $inc: { totalChats: 1, totalChatTime: chatDurationMinutes } },
+                { upsert: false }
+              )
+            )
+          );
         } catch (dbError) {
           console.error(`❌ [DB 저장 오류] ${room}:`, dbError.message);
         }
 
-        io.to(room).emit('receive_report', {
-          reportText: cleanReportText,
-          stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore },
-          partnerId: Array.from(roomData.userIds).find(id => id !== null)
-        });
+        const userIdArray = Array.from(roomData.userIds).filter(
+          id => id && typeof id === 'string' && !id.startsWith('AI_')
+        );
+        for (const [, socketObj] of io.sockets.sockets) {
+          if (socketObj.roomName === room) {
+            const myId = socketObj.userId;
+            const pId = userIdArray.find(id => id !== myId) || null;
+            socketObj.emit('receive_report', {
+              reportText: cleanReportText,
+              stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore },
+              partnerId: pId
+            });
+          }
+        }
+        // single mode: emit directly to the room socket
+        if (roomData.type === 'single') {
+          io.to(room).emit('receive_report', {
+            reportText: cleanReportText,
+            stats: { logic: logicScore, linguistics: linguisticsScore, empathy: empathyScore },
+            partnerId: null
+          });
+        }
 
       } catch (err) {
         // ★ FIX-3: top-level catch — any unhandled throw (Gemini crash, parse

@@ -13,6 +13,7 @@ export default function ChatRoom({
   const [isCapturing, setIsCapturing] = useState(false);
   
   const [isPartnerCardUnlocked, setIsPartnerCardUnlocked] = useState(false);
+  const [isFriendAdding, setIsFriendAdding] = useState(false);
   
   const [cyranoSuggestions, setCyranoSuggestions] = useState<string>('');
   const [isCyranoLoading, setIsCyranoLoading] = useState(false);
@@ -96,7 +97,9 @@ export default function ChatRoom({
   };
 
   const handleAddFriend = () => {
+    if (isFriendAdding) return;
     if (!partnerId) return showModal('알림', 'AI와는 친구를 맺을 수 없습니다.', 'alert');
+    setIsFriendAdding(true);
     socketRef.current?.emit('add_friend', { userId, friendId: partnerId });
     showModal('인맥 추가 완료', '상대방을 인사이트 인맥에 추가했습니다!\nPROFILE 창에서 확인하세요.', 'alert');
   };
@@ -290,8 +293,8 @@ export default function ChatRoom({
           
           <div className="w-full max-w-sm mt-4 sm:mt-5 space-y-2 px-1 sm:px-2 shrink-0">
             {!isSingleMode && partnerId && (
-              <button onClick={handleAddFriend} className="w-full bg-emerald-500/20 border border-emerald-500/50 hover:bg-emerald-500/30 text-emerald-300 font-bold py-3 sm:py-3.5 rounded-xl transition-colors flex justify-center items-center text-xs sm:text-sm tracking-widest shadow-lg">
-                🤝 인사이트 인맥(친구) 추가하기
+              <button onClick={handleAddFriend} disabled={isFriendAdding} className="w-full bg-emerald-500/20 border border-emerald-500/50 hover:bg-emerald-500/30 text-emerald-300 font-bold py-3 sm:py-3.5 rounded-xl transition-colors flex justify-center items-center text-xs sm:text-sm tracking-widest shadow-lg disabled:opacity-40 disabled:cursor-not-allowed">
+                {isFriendAdding ? '추가됨 ✓' : '🤝 인사이트 인맥(친구) 추가하기'}
               </button>
             )}
             <div className="flex gap-2 w-full">
