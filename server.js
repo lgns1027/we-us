@@ -165,10 +165,10 @@ function getCurrentEvent() {
   return DAILY_EVENTS[new Date().getDay()];
 }
 
-async function getGoogleAIResponse(systemPrompt, history, maxTokens = 300) {
+async function getGoogleAIResponse(systemPrompt, history, maxTokens = 200) {
   const modelsToTry = [
+    "gemini-1.5-flash",
     "gemma-3-12b",
-    "gemma-3-27b",
     "gemma-3-4b"
   ];
 
@@ -221,6 +221,8 @@ function filterProfanity(text) {
   });
   return filtered;
 }
+
+const AI_CONVERSATION_SYSTEM_PROMPT = "You are a natural, witty human user in a 3-minute anonymous chat app. Match the mood (casual, deep, or roleplay). CRITICAL: You must respond in exactly 1 or 2 fully completed sentences. Do not truncate mid-sentence. Be engaging and avoid repetitive AI-like phrasing.";
 
 function getPersonaPrompt(topic, isReport = false, partnerRole = '') {
   if (isReport) {
@@ -289,7 +291,10 @@ function tryMatch(topicKey) {
     //   server clock instead of independently counting down from 180.
     io.to(user1.id).emit('matched', { roomName, partner: role2, myRole: role1, participantCount: 2, endTime: activeRooms[roomName].endTime });
     io.to(user2.id).emit('matched', { roomName, partner: role1, myRole: role2, participantCount: 2, endTime: activeRooms[roomName].endTime });
-    
+    // Cancel AI fallback timers for both users
+    user1.socket.emit('matched_human');
+    user2.socket.emit('matched_human');
+
     console.log(`✅ [매칭 성공] ${roomName} 생성 (${role1} vs ${role2})`);
   };
 
@@ -518,6 +523,59 @@ io.on('connection', (socket) => {
 
     console.log(`⏳ [대기열 진입] 유저: ${socket.id} | 주제: ${topic} | 역할: ${role}`);
     tryMatch(topic);
+
+    // 10-second AI fallback: if still in queue, auto-match with AI bot
+    const fallbackTimer = setTimeout(() => {
+      if (!socket.queueTopic) return; // already matched or left
+
+      // Remove from queue
+      const targetQueue = socket.queueRole === 'A' ? 'roleA' : socket.queueRole === 'B' ? 'roleB' : 'random';
+      if (waitingQueues[topic]) {
+        waitingQueues[topic][targetQueue] = waitingQueues[topic][targetQueue].filter(s => s.id !== socket.id);
+      }
+      socket.queueTopic = null;
+      socket.queueRole = null;
+
+      // Determine roles
+      const q = waitingQueues[topic] || {};
+      const myRoleName = role === 'A' ? (roleA_name || '역할A') : role === 'B' ? (roleB_name || '역할B') : (roleA_name || '익명');
+      const aiRoleName = role === 'A' ? (roleB_name || '역할B') : role === 'B' ? (roleA_name || '역할A') : (roleB_name || 'AI 파트너');
+
+      const roomId = `ai_${socket.id}_${Date.now()}`;
+      socket.join(roomId);
+      socket.userAlias = myRoleName;
+      socket.aiPartnerRole = aiRoleName;
+      socket.roomName = roomId;
+
+      activeRooms[roomId] = {
+        type: 'single',
+        topic: topic,
+        history: [],
+        isGeneratingReport: false,
+        userIds: new Set(uid ? [uid] : []),
+        endTime: Date.now() + (180 * 1000),
+        lastSender: null,
+        consecutiveCount: 0
+      };
+
+      socket.emit('matched', {
+        roomId: roomId,
+        partner: aiRoleName,
+        myRole: myRoleName,
+        participantCount: 2,
+        endTime: activeRooms[roomId].endTime
+      });
+      socket.emit('receive_message', {
+        sender: 'System',
+        text: '대기 인원이 적어 AI 파트너와 연결되었습니다. 3분간 자유롭게 대화해보세요!'
+      });
+      console.log(`🤖 [AI 폴백 매칭] ${socket.id} -> ${roomId}`);
+    }, 10000);
+
+    // Cancel fallback if matched or left before 10s
+    socket.once('matched_human', () => clearTimeout(fallbackTimer));
+    const originalLeave = socket.listeners('leave_queue')[0];
+    socket.once('leave_queue_cancel_fallback', () => clearTimeout(fallbackTimer));
   });
 
   socket.on('leave_queue', () => {
@@ -529,6 +587,8 @@ io.on('connection', (socket) => {
       socket.queueTopic = null;
       socket.queueRole = null;
     }
+    // Cancel AI fallback if user manually leaves queue
+    socket.emit('matched_human');
   });
 
   socket.on('start_ai_chat', (data) => {
@@ -593,8 +653,8 @@ io.on('connection', (socket) => {
     else if (roomData.type === 'single') {
       roomData.history.push({ role: 'user', content: cleanText }); 
       
-      const systemPrompt = getPersonaPrompt(roomData.topic, false, socket.aiPartnerRole);
-      let aiReply = await getGoogleAIResponse(systemPrompt, roomData.history.slice(-8), 300); 
+      const systemPrompt = AI_CONVERSATION_SYSTEM_PROMPT + '\n\n' + getPersonaPrompt(roomData.topic, false, socket.aiPartnerRole);
+      let aiReply = await getGoogleAIResponse(systemPrompt, roomData.history.slice(-8), 200);
       
       aiReply = aiReply.replace(/^.*?:/, '').trim();
       

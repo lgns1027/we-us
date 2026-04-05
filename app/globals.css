@@ -24,11 +24,10 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
   /* ── Native WebView feel ────────────────────────────────────── */
-  /* Disable rubber-band bounce scroll on iOS and Android */
   overscroll-behavior: none;
-  /* Remove the grey flash on tap (iOS Safari / Android WebView) */
+  overscroll-behavior-y: none;
+  touch-action: pan-x pan-y;
   -webkit-tap-highlight-color: transparent;
-  /* Prevent text selection on long-press */
   user-select: none;
   -webkit-user-select: none;
 }
@@ -42,7 +41,9 @@ body {
 }
 
 /* Re-enable selection inside text inputs and textareas */
-input, textarea {
+input, textarea, select {
   user-select: text;
   -webkit-user-select: text;
+  font-size: 16px !important;
+  touch-action: manipulation !important;
 }
