@@ -281,17 +281,22 @@ function tryMatch(topicKey) {
 
     user1.socket.join(roomName);
     user2.socket.join(roomName);
-    
+
     user1.socket.userAlias = role1;
     user2.socket.userAlias = role2;
     user1.socket.roomName = roomName;
     user2.socket.roomName = roomName;
+    user1.socket.inQueue = false;
+    user2.socket.inQueue = false;
+    user1.socket.currentRoom = roomName;
+    user2.socket.currentRoom = roomName;
 
-    // ★ FIX-1: send endTime so the frontend can sync its countdown to the
-    //   server clock instead of independently counting down from 180.
+    // Clear AI fallback timers immediately before emitting match
+    if (user1.socket.aiFallbackTimeout) { clearTimeout(user1.socket.aiFallbackTimeout); user1.socket.aiFallbackTimeout = null; }
+    if (user2.socket.aiFallbackTimeout) { clearTimeout(user2.socket.aiFallbackTimeout); user2.socket.aiFallbackTimeout = null; }
+
     io.to(user1.id).emit('matched', { roomName, partner: role2, myRole: role1, participantCount: 2, endTime: activeRooms[roomName].endTime });
     io.to(user2.id).emit('matched', { roomName, partner: role1, myRole: role2, participantCount: 2, endTime: activeRooms[roomName].endTime });
-    // Cancel AI fallback timers for both users
     user1.socket.emit('matched_human');
     user2.socket.emit('matched_human');
 
@@ -523,6 +528,8 @@ io.on('connection', (socket) => {
 
     socket.queueTopic = topic;
     socket.queueRole = role || 'random';
+    socket.inQueue = true;
+    socket.currentRoom = null;
 
     console.log(`⏳ [대기열 진입] 유저: ${socket.id} | 주제: ${topic} | 역할: ${role}`);
     tryMatch(topic);
@@ -531,6 +538,9 @@ io.on('connection', (socket) => {
     socket.aiFallbackTimeout = setTimeout(() => {
       socket.aiFallbackTimeout = null;
       if (!socket.queueTopic) return; // already matched or left
+
+      // Fail-safe: abort if already in a room or no longer queued
+      if (!socket.inQueue || socket.currentRoom) return;
 
       // Ghost AI room guard: abort if socket already disconnected
       if (!socket.connected) return;
