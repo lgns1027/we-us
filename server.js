@@ -15,9 +15,26 @@ const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] } 
 });
 
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log("🍃 MongoDB 연결 성공! 대화 기록이 영구 저장됩니다."))
-  .catch(err => console.error("❌ DB 연결 실패 (서버 환경을 확인하세요):", err));
+const MONGOOSE_OPTS = {
+  serverSelectionTimeoutMS: 10000,
+  socketTimeoutMS: 45000,
+  heartbeatFrequencyMS: 10000,
+  keepAlive: true,
+  keepAliveInitialDelay: 300000,
+};
+
+function connectDB() {
+  mongoose.connect(process.env.MONGODB_URI, MONGOOSE_OPTS)
+    .then(() => console.log("🍃 MongoDB 연결 성공! 대화 기록이 영구 저장됩니다."))
+    .catch(err => console.error("❌ DB 초기 연결 실패:", err));
+}
+connectDB();
+
+mongoose.connection.on('disconnected', () => {
+  console.warn("⚠️ MongoDB 연결 끊김 - 5초 후 재연결 시도...");
+  setTimeout(connectDB, 5000);
+});
+mongoose.connection.on('error', err => console.error("❌ MongoDB 런타임 에러:", err));
 
 // ==========================================
 // DB 스키마 정의
@@ -627,79 +644,85 @@ io.on('connection', (socket) => {
   });
 
   socket.on('start_ai_chat', (data) => {
-    const uid = extractId(data.userId);
-    const { topic, myRole, aiRole } = data;
-    socket.userId = uid;
-    const roomId = `ai_${socket.id}_${Date.now()}`;
-    socket.join(roomId);
-    
-    socket.userAlias = myRole || '익명';
-    socket.aiPartnerRole = aiRole || '익명'; 
-    
-    activeRooms[roomId] = { 
-      type: 'single', 
-      topic: topic, 
-      history: [], 
-      isGeneratingReport: false,
-      userIds: new Set(uid ? [uid] : []), 
-      endTime: Date.now() + (180 * 1000),
-      lastSender: null,
-      consecutiveCount: 0
-    };
+    try {
+      const uid = extractId(data.userId);
+      const { topic, myRole, aiRole } = data;
+      socket.userId = uid;
+      const roomId = `ai_${socket.id}_${Date.now()}`;
+      socket.join(roomId);
 
-    // ★ FIX-1: include endTime for frontend clock sync
-    socket.emit('matched', { roomId: roomId, partner: socket.aiPartnerRole, myRole: socket.userAlias, participantCount: 2, endTime: activeRooms[roomId].endTime });
-    socket.emit('receive_message', { sender: 'System', text: `[시스템] '${topic}' 모드가 시작되었습니다. 당신은 [${socket.userAlias}]입니다.` });
+      socket.userAlias = myRole || '익명';
+      socket.aiPartnerRole = aiRole || '익명';
+      socket.roomName = roomId;
+      socket.currentRoom = roomId;
+      socket.inQueue = false;
+
+      activeRooms[roomId] = {
+        type: 'single',
+        topic: topic,
+        history: [],
+        isGeneratingReport: false,
+        userIds: new Set(uid ? [uid] : []),
+        endTime: Date.now() + (180 * 1000),
+        lastSender: null,
+        consecutiveCount: 0
+      };
+
+      socket.emit('matched', { roomId: roomId, partner: socket.aiPartnerRole, myRole: socket.userAlias, participantCount: 2, endTime: activeRooms[roomId].endTime });
+      socket.emit('receive_message', { sender: 'System', text: `[시스템] '${topic}' 모드가 시작되었습니다. 당신은 [${socket.userAlias}]입니다.` });
+    } catch (err) {
+      console.error("❌ [start_ai_chat 에러]:", err);
+    }
   });
 
   socket.on('send_message', async (data) => {
-    const now = Date.now();
-    
-    // ★ 변경점: 0.5초 쿨타임 삭제. 단축 채팅 연속 전송 가능
-    const muteUntil = rateLimits.get(socket.id + '_mute') || 0;
-    if (now < muteUntil) return;
+    try {
+      const now = Date.now();
 
-    const roomData = activeRooms[data.room || data.roomId];
-    if (!roomData) return;
+      const muteUntil = rateLimits.get(socket.id + '_mute') || 0;
+      if (now < muteUntil) return;
 
-    // ★ 신규: 7회 연속 도배 시 3초간 뮤트 로직
-    const userStats = rateLimits.get(socket.id + '_stats') || { sender: null, count: 0 };
-    if (userStats.sender === socket.userAlias) {
-      userStats.count++;
-    } else {
-      userStats.sender = socket.userAlias;
-      userStats.count = 1;
-    }
-    rateLimits.set(socket.id + '_stats', userStats);
+      const roomData = activeRooms[data.room || data.roomId];
+      if (!roomData) return;
 
-    if (userStats.count >= 7) {
-      rateLimits.set(socket.id + '_mute', now + 3000); // 3초 뮤트
-      userStats.count = 0;
-      socket.emit('receive_message', { sender: 'System', text: '⚠️ 혼자서 연속 7번 발언했습니다. 3초간 대화가 금지됩니다.' });
-      return;
-    }
-
-    const cleanText = filterProfanity(data.text);
-
-    if (roomData.type === 'multi') {
-      roomData.history.push(`${socket.userAlias}: ${cleanText}`);
-      socket.to(data.room).emit('receive_message', { sender: socket.userAlias, text: cleanText });
-    } 
-    else if (roomData.type === 'single') {
-      roomData.history.push({ role: 'user', content: cleanText }); 
-      
-      const systemPrompt = AI_CONVERSATION_SYSTEM_PROMPT + '\n\n' + getPersonaPrompt(roomData.topic, false, socket.aiPartnerRole);
-      let aiReply = await getGoogleAIResponse(systemPrompt, roomData.history.slice(-8), 200);
-      
-      aiReply = aiReply.replace(/^.*?:/, '').trim();
-      
-      roomData.history.push({ role: 'assistant', content: aiReply }); 
-      
-      // AI 답변 시 연속 카운트 리셋
-      userStats.count = 0;
+      const userStats = rateLimits.get(socket.id + '_stats') || { sender: null, count: 0 };
+      if (userStats.sender === socket.userAlias) {
+        userStats.count++;
+      } else {
+        userStats.sender = socket.userAlias;
+        userStats.count = 1;
+      }
       rateLimits.set(socket.id + '_stats', userStats);
 
-      socket.emit('receive_message', { sender: socket.aiPartnerRole, text: aiReply });
+      if (userStats.count >= 7) {
+        rateLimits.set(socket.id + '_mute', now + 3000);
+        userStats.count = 0;
+        socket.emit('receive_message', { sender: 'System', text: '⚠️ 혼자서 연속 7번 발언했습니다. 3초간 대화가 금지됩니다.' });
+        return;
+      }
+
+      const cleanText = filterProfanity(data.text);
+
+      if (roomData.type === 'multi') {
+        roomData.history.push(`${socket.userAlias}: ${cleanText}`);
+        socket.to(data.room).emit('receive_message', { sender: socket.userAlias, text: cleanText });
+      } else if (roomData.type === 'single') {
+        roomData.history.push({ role: 'user', content: cleanText });
+
+        const systemPrompt = AI_CONVERSATION_SYSTEM_PROMPT + '\n\n' + getPersonaPrompt(roomData.topic, false, socket.aiPartnerRole);
+        let aiReply = await getGoogleAIResponse(systemPrompt, roomData.history.slice(-8), 200);
+
+        aiReply = aiReply.replace(/^.*?:/, '').trim();
+
+        roomData.history.push({ role: 'assistant', content: aiReply });
+
+        userStats.count = 0;
+        rateLimits.set(socket.id + '_stats', userStats);
+
+        socket.emit('receive_message', { sender: socket.aiPartnerRole, text: aiReply });
+      }
+    } catch (err) {
+      console.error("❌ [send_message 에러]:", err);
     }
   });
 
@@ -714,16 +737,20 @@ io.on('connection', (socket) => {
   });
 
   socket.on('request_ai_help', async (data) => {
-    const roomData = activeRooms[data.room];
-    if (!roomData) return;
-    
-    const chatHistory = data.history.slice(-5).map(msg => ({ role: 'user', content: `${msg.sender}: ${msg.text}` }));
-    const systemPrompt = `당신은 정중한 대화 중재자입니다. 10초간 정적이 흘렀습니다. 대화 문맥을 파악해 상대방이 부담 없이 대답할 수 있는 질문을 하나 던져 대화를 부드럽게 유도하세요. 절대 도발하지 말고, 50자 이내의 완성된 한 문장으로 대답하세요.`;
-    
-    const aiMessage = await getGoogleAIResponse(systemPrompt, chatHistory, 300); 
-    
-    if (!aiMessage.includes("불안정하여")) {
-      io.to(data.room).emit('receive_message', { sender: 'AI 가이드 💡', text: aiMessage });
+    try {
+      const roomData = activeRooms[data.room];
+      if (!roomData) return;
+
+      const chatHistory = data.history.slice(-5).map(msg => ({ role: 'user', content: `${msg.sender}: ${msg.text}` }));
+      const systemPrompt = `당신은 정중한 대화 중재자입니다. 10초간 정적이 흘렀습니다. 대화 문맥을 파악해 상대방이 부담 없이 대답할 수 있는 질문을 하나 던져 대화를 부드럽게 유도하세요. 절대 도발하지 말고, 50자 이내의 완성된 한 문장으로 대답하세요.`;
+
+      const aiMessage = await getGoogleAIResponse(systemPrompt, chatHistory, 300);
+
+      if (!aiMessage.includes("불안정하여")) {
+        io.to(data.room).emit('receive_message', { sender: 'AI 가이드 💡', text: aiMessage });
+      }
+    } catch (err) {
+      console.error("❌ [request_ai_help 에러]:", err);
     }
   });
 
@@ -752,44 +779,53 @@ io.on('connection', (socket) => {
   });
 
   socket.on('vote_extend', (data) => {
-    const room = data.room;
-    const roomData = activeRooms[room];
-    if (!roomData) return;
+    try {
+      const room = data.room;
+      const roomData = activeRooms[room];
+      if (!roomData) return;
 
-    if (!roomVotes[room]) roomVotes[room] = new Set();
-    roomVotes[room].add(socket.id);
+      if (!roomVotes[room]) roomVotes[room] = new Set();
+      roomVotes[room].add(socket.id);
 
-    if (roomVotes[room].size === roomData.participants) {
-      roomData.extensionCount += 1;
-      roomData.endTime += (120 * 1000);
-      // ★ FIX-1: send updated endTime so clients re-sync their countdown
-      io.to(room).emit('time_extended', { addedTime: 120, currentExtensions: roomData.extensionCount, endTime: roomData.endTime });
-      roomVotes[room].clear();
-    } else {
-      socket.to(room).emit('partner_wants_extension', { currentVotes: roomVotes[room].size, total: roomData.participants });
+      if (roomVotes[room].size === roomData.participants) {
+        roomData.extensionCount += 1;
+        roomData.endTime += (120 * 1000);
+        io.to(room).emit('time_extended', { addedTime: 120, currentExtensions: roomData.extensionCount, endTime: roomData.endTime });
+        roomVotes[room].clear();
+      } else {
+        socket.to(room).emit('partner_wants_extension', { currentVotes: roomVotes[room].size, total: roomData.participants });
+      }
+    } catch (err) {
+      console.error("❌ [vote_extend 에러]:", err);
     }
   });
 
   socket.on('leave_room', (data) => {
-    const room = data.room;
-    const roomData = activeRooms[room];
-    if (!roomData) return;
-    
-    socket.leave(room);
+    try {
+      const room = data.room;
+      const roomData = activeRooms[room];
+      if (!roomData) return;
 
-    if (roomData.type === 'multi') {
-      socket.to(room).emit('receive_message', { sender: 'System', text: `${socket.userAlias} 님이 퇴장하셨습니다.` });
+      socket.leave(room);
+      socket.roomName = null;
+      socket.currentRoom = null;
 
-      roomData.participants -= 1;
-      if (roomData.participants < 2) {
-        socket.to(room).emit('partner_left');
-        if (!roomData.isGeneratingReport && Date.now() < roomData.endTime) {
-          delete activeRooms[room];
-          if (roomVotes[room]) delete roomVotes[room];
+      if (roomData.type === 'multi') {
+        socket.to(room).emit('receive_message', { sender: 'System', text: `${socket.userAlias} 님이 퇴장하셨습니다.` });
+
+        roomData.participants -= 1;
+        if (roomData.participants < 2) {
+          socket.to(room).emit('partner_left');
+          if (!roomData.isGeneratingReport && Date.now() < roomData.endTime) {
+            delete activeRooms[room];
+            if (roomVotes[room]) delete roomVotes[room];
+          }
         }
+      } else {
+        delete activeRooms[room];
       }
-    } else {
-      delete activeRooms[room];
+    } catch (err) {
+      console.error("❌ [leave_room 에러]:", err);
     }
   });
 
@@ -884,97 +920,113 @@ io.on('connection', (socket) => {
   });
 
   socket.on('join_as_spectator', (data) => {
-    const { roomId } = data;
-    const roomData = activeRooms[roomId];
-    if (roomData && roomData.type === 'multi') {
-      socket.join(roomId);
-      if (!roomData.spectators) roomData.spectators = new Set();
-      roomData.spectators.add(socket.id);
-      socket.spectatingRoom = roomId;
+    try {
+      const { roomId } = data;
+      const roomData = activeRooms[roomId];
+      if (roomData && roomData.type === 'multi') {
+        socket.join(roomId);
+        if (!roomData.spectators) roomData.spectators = new Set();
+        roomData.spectators.add(socket.id);
+        socket.spectatingRoom = roomId;
 
-      socket.emit('spectator_joined', {
-        history: roomData.history,
-        topic: roomData.topic,
-        roleA: roomData.roleA,
-        roleB: roomData.roleB,
-        spectatorCount: roomData.spectators.size,
-        votesA: roomData.votesA || 0,
-        votesB: roomData.votesB || 0
-      });
-      io.to(roomId).emit('spectator_count_update', { count: roomData.spectators.size });
+        socket.emit('spectator_joined', {
+          history: roomData.history,
+          topic: roomData.topic,
+          roleA: roomData.roleA,
+          roleB: roomData.roleB,
+          spectatorCount: roomData.spectators.size,
+          votesA: roomData.votesA || 0,
+          votesB: roomData.votesB || 0
+        });
+        io.to(roomId).emit('spectator_count_update', { count: roomData.spectators.size });
+      }
+    } catch (err) {
+      console.error("❌ [join_as_spectator 에러]:", err);
     }
   });
 
   socket.on('spectator_vote', (data) => {
-    const { roomId, voteFor } = data; 
-    const roomData = activeRooms[roomId];
-    
-    if (roomData && roomData.type === 'multi') {
-      if (voteFor === 'A') roomData.votesA = (roomData.votesA || 0) + 1;
-      else if (voteFor === 'B') roomData.votesB = (roomData.votesB || 0) + 1;
+    try {
+      const { roomId, voteFor } = data;
+      const roomData = activeRooms[roomId];
 
-      io.to(roomId).emit('vote_update', { votesA: roomData.votesA, votesB: roomData.votesB });
+      if (roomData && roomData.type === 'multi') {
+        if (voteFor === 'A') roomData.votesA = (roomData.votesA || 0) + 1;
+        else if (voteFor === 'B') roomData.votesB = (roomData.votesB || 0) + 1;
+
+        io.to(roomId).emit('vote_update', { votesA: roomData.votesA, votesB: roomData.votesB });
+      }
+    } catch (err) {
+      console.error("❌ [spectator_vote 에러]:", err);
     }
   });
 
   socket.on('leave_spectator', (data) => {
-    const { roomId } = data;
-    const roomData = activeRooms[roomId];
-    if (roomData) {
-      socket.leave(roomId);
-      if (roomData.spectators) {
-        roomData.spectators.delete(socket.id);
-        io.to(roomId).emit('spectator_count_update', { count: roomData.spectators.size });
+    try {
+      const { roomId } = data;
+      const roomData = activeRooms[roomId];
+      if (roomData) {
+        socket.leave(roomId);
+        if (roomData.spectators) {
+          roomData.spectators.delete(socket.id);
+          io.to(roomId).emit('spectator_count_update', { count: roomData.spectators.size });
+        }
       }
+      socket.spectatingRoom = null;
+    } catch (err) {
+      console.error("❌ [leave_spectator 에러]:", err);
     }
-    socket.spectatingRoom = null;
   });
 
   socket.on('disconnect', () => {
-    // Clear zombie AI fallback timer
-    if (socket.aiFallbackTimeout) {
-      clearTimeout(socket.aiFallbackTimeout);
-      socket.aiFallbackTimeout = null;
-    }
-
-    if (socket.loungeNickname) {
-      const count = (io.sockets.adapter.rooms.get('open_lounge')?.size || 1) - 1;
-      io.to('open_lounge').emit('lounge_meta', { userCount: Math.max(0, count) });
-    }
-
-    // Deep cleanup: remove from all queue arrays
-    for (const qKey of Object.keys(waitingQueues)) {
-      const q = waitingQueues[qKey];
-      if (q) {
-        q.roleA = q.roleA.filter(s => s.id !== socket.id);
-        q.roleB = q.roleB.filter(s => s.id !== socket.id);
-        q.random = q.random.filter(s => s.id !== socket.id);
+    try {
+      // Clear zombie AI fallback timer
+      if (socket.aiFallbackTimeout) {
+        clearTimeout(socket.aiFallbackTimeout);
+        socket.aiFallbackTimeout = null;
       }
-    }
-    socket.queueTopic = null;
-    socket.queueRole = null;
 
-    if (socket.spectatingRoom && activeRooms[socket.spectatingRoom]) {
-      const roomData = activeRooms[socket.spectatingRoom];
-      if (roomData.spectators) {
-        roomData.spectators.delete(socket.id);
-        io.to(socket.spectatingRoom).emit('spectator_count_update', { count: roomData.spectators.size });
+      if (socket.loungeNickname) {
+        const count = (io.sockets.adapter.rooms.get('open_lounge')?.size || 1) - 1;
+        io.to('open_lounge').emit('lounge_meta', { userCount: Math.max(0, count) });
       }
-    }
 
-    if (socket.roomName && activeRooms[socket.roomName] && !socket.spectatingRoom) {
-      const room = socket.roomName;
-      socket.to(room).emit('receive_message', { sender: 'System', text: `⚠️ 상대방의 연결이 불안정합니다. (10초 대기 중...)` });
-      
-      setTimeout(() => {
-        // ★ FIX-4: room may already be deleted by the report interval if the
-        //   disconnect happened right at endTime. Guard is already here — safe.
-        if (activeRooms[room]) {
-          io.to(room).emit('partner_left');
-          delete activeRooms[room];
-          if (roomVotes[room]) delete roomVotes[room];
+      // Deep cleanup: remove from ALL queue arrays
+      for (const qKey of Object.keys(waitingQueues)) {
+        const q = waitingQueues[qKey];
+        if (q) {
+          q.roleA = q.roleA.filter(s => s.id !== socket.id);
+          q.roleB = q.roleB.filter(s => s.id !== socket.id);
+          q.random = q.random.filter(s => s.id !== socket.id);
         }
-      }, 10000);
+      }
+      socket.queueTopic = null;
+      socket.queueRole = null;
+      socket.inQueue = false;
+      socket.currentRoom = null;
+
+      if (socket.spectatingRoom && activeRooms[socket.spectatingRoom]) {
+        const roomData = activeRooms[socket.spectatingRoom];
+        if (roomData.spectators) {
+          roomData.spectators.delete(socket.id);
+          io.to(socket.spectatingRoom).emit('spectator_count_update', { count: roomData.spectators.size });
+        }
+      }
+
+      if (socket.roomName && activeRooms[socket.roomName] && !socket.spectatingRoom) {
+        const room = socket.roomName;
+        socket.to(room).emit('receive_message', { sender: 'System', text: `⚠️ 상대방의 연결이 불안정합니다. (10초 대기 중...)` });
+
+        setTimeout(() => {
+          if (activeRooms[room]) {
+            io.to(room).emit('partner_left');
+            delete activeRooms[room];
+            if (roomVotes[room]) delete roomVotes[room];
+          }
+        }, 10000);
+      }
+    } catch (err) {
+      console.error("❌ [disconnect 에러]:", err);
     }
   });
 });
@@ -1192,3 +1244,15 @@ setInterval(() => {
 
 const PORT = process.env.PORT || 10000;
 server.listen(PORT, '0.0.0.0', () => console.log(`🚀 WE US 서버 구동 완료 (포트: ${PORT})`));
+
+// ==========================================
+// 전역 프로세스 크래시 방지
+// ==========================================
+
+process.on('uncaughtException', (err) => {
+  console.error('❌ [uncaughtException] 서버 크래시 방지 - 오류 로깅 후 계속 실행:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ [unhandledRejection] 처리되지 않은 Promise 거부:', reason);
+});
